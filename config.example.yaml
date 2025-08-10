@@ -1,0 +1,32 @@
+# Exemple de configuration pour le MVP iObeya → GitHub Projects
+iobeya:
+  base_url: "https://iobeya.example.com"
+  board_id: "BOARD_ID_HERE"
+  username: "user@example.com"
+  password: "**************"
+  # ou token: "IOBEYA_API_TOKEN"
+
+github:
+  project_id: "PROJECT_V2_NODE_ID"
+  token_env_var: "GITHUB_TOKEN"
+
+mapping:
+  states:
+    Funnel: "Proposed"
+    Analyzing: "In Review"
+    Implementing: "In Progress"
+    Validating: "In QA"
+    Done: "Done"
+
+  fields:
+    feature_key: "Feature Key"
+    state: "State"
+    wsjf: "WSJF"
+    pi: "PI"
+    owner: "Owner"
+    tags: "Tags"
+    last_sync_at: "Last Sync At"
+
+run:
+  output_dir: "data"
+  storage_path: "data/id_map.json"

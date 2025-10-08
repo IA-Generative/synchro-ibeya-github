@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Synchronisation Grist ↔ iObeya ↔ GitHub</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    .result-separator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 6px 0;
+    }
+    .result-separator hr {
+      flex: 1;
+      border: none;
+      border-top: 1px solid #ccc;
+    }
+    .result-separator span {
+      padding: 0 8px;
+      font-size: 0.8em;
+      color: #666;
+      font-weight: bold;
+    }
+    body {
+      background: #f8f9fa;
+      font-family: 'Roboto', Arial, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      font-size: 14px;
+    }
+    .container {
+      background: #fff;
+      max-width: 600px;
+      margin: 20px auto;
+      box-shadow: 0 4px 24px rgba(44, 62, 80, 0.08), 0 1.5px 5px rgba(44,62,80,0.06);
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
+    }
+    h1 {
+      color: #2c3e50;
+      margin-top: 0;
+      margin-bottom: 1em;
+      font-weight: 700;
+      letter-spacing: -1px;
+      font-size: 1.3em;
+      /* text-align removed for header-row flex */
+    }
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .settings-buttons button {
+      background: #e3e8ef;
+      color: #2c3e50;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.9em;
+      cursor: pointer;
+      margin-left: 4px;
+      transition: background 0.15s;
+    }
+    .settings-buttons button:hover {
+      background: #d1d9e6;
+    }
+    label {
+      font-weight: 700;
+      margin-top: 0.5em;
+      display: block;
+      margin-bottom: 0.2em;
+      color: #2c3e50;
+      font-size: 0.9em;
+    }
+    input[type="number"],
+    select {
+      padding: 6px 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 0.9em;
+      font-family: inherit;
+      margin-bottom: 0.7em;
+      transition: border-color 0.2s;
+      background: #fafbfc;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    input[type="number"]:focus,
+    select:focus {
+      border-color: #1976d2;
+      outline: none;
+    }
+    input[type="checkbox"] {
+      margin-right: 0.5em;
+      accent-color: #1976d2;
+    }
+    button {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9em;
+      font-family: inherit;
+      margin: 4px 6px 4px 0;
+      cursor: pointer;
+      background: #e3e8ef;
+      color: #2c3e50;
+      transition: background 0.15s, color 0.15s;
+      font-weight: 500;
+      box-shadow: none;
+    }
+    button:hover {
+      background: #d1d9e6;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #ccc !important;
+      color: #666 !important;
+      box-shadow: none;
+      pointer-events: none;
+    }
+    #syncBtn {
+      background: #1976d2;
+      color: #fff;
+      margin-right: 8px;
+    }
+    #syncBtn:hover {
+      background: #115293;
+    }
+    #overwriteBtn {
+      background: #c62828;
+      color: #fff;
+      margin-right: 8px;
+    }
+    #overwriteBtn:hover {
+      background: #8e1c1c;
+    }
+    #verifyBtn {
+      background: #26a69a;
+      color: #fff;
+      margin-right: 8px;
+    }
+    #verifyBtn:hover {
+      background: #15827a;
+    }
+    .number-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 0.4em;
+    }
+    pre#results {
+      background: #eef2f7;
+      color: #222;
+      border-radius: 7px;
+      font-family: 'Roboto Mono', 'Menlo', 'Consolas', monospace;
+      padding: 10px;
+      margin-top: 1em;
+      font-size: 0.85em;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      border: 1px solid #e0e4eb;
+      min-height: 60px;
+      overflow-x: auto;
+    }
+    @media (max-width: 700px) {
+      .container {
+        max-width: 98vw;
+        padding: 12px 4vw;
+      }
+      h1 {
+        font-size: 1.5em;
+      }
+    }
+    .form-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 0.4em;
+    }
+    .form-row label {
+      flex: 0 0 40%;
+      margin: 0;
+    }
+    .form-row select,
+    .form-row input[type="number"] {
+      flex: 1;
+      margin: 0;
+    }
+    .pi-group {
+      width: 60px;
+      align-items: left;
+      gap: 4px;
+      flex: 1;
+    }
+    .pi-group input[type="number"] {
+      width: 60px;
+      min-width: 3ch;
+      text-align: left;
+      margin-right: 0.4em;
+
+    }
+    .pi-group button {
+      flex: 0 0 auto;
+      padding: 4px 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header-row">
+      <h1>Synchronisation</h1>
+      <div class="settings-buttons">
+        <button id="saveSettingsBtn" title="Sauvegarder les préférences dans un cookie">💾</button>
+        <button id="loadSettingsBtn" title="Charger les préférences enregistrées depuis le cookie">📖</button>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label for="piInput">Program Incrément :</label>
+      <div class="pi-group">
+        <input type="number" id="piInput" value="5" min="1" step="1" />
+        <button type="button" onclick="document.getElementById('piInput').stepDown()">−</button>
+        <button type="button" onclick="document.getElementById('piInput').stepUp()">+</button>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label for="epicSelect">Épic :</label>
+      <select id="epicSelect">
+        <option value="None">— Pas de filtre —</option>
+        <option value="None" disabled>──────────────</option>
+        {% for e in epics %}
+          <option value="{{e.id}}">{{e.name}}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="roomSelect">Room iObeya :</label>
+      <select id="roomSelect">
+        {% for r in rooms %}
+        <option value="{{r.id}}">{{r.name}}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="boardSelect">Board iObeya :</label>
+      <select id="boardSelect"></select>
+    </div>
+
+    <div class="form-row">
+      <label for="orgSelect">Organisation GitHub :</label>
+      <select id="orgSelect">
+        {% for o in organizations %}
+          <option value="{{o.id}}">{{o.name}}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="githubSelect">Projet GitHub :</label>
+      <select id="githubSelect"></select>
+    </div>
+
+    <label style="font-weight: 400; margin-top: 1.3em;">
+      <input type="checkbox" id="delCheckbox" />
+      Renommer les éléments supprimés avec "del_"
+    </label>
+
+    <div style="margin: 1.5em 0 0.5em 0;">
+      <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button>
+      <button id="syncBtn" disabled title="Synchronise les données dans les deux sens (Grist ↔ iObeya ↔ GitHub)">Synchroniser (bi-directionnel)</button>
+      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub (écrasement complet)">Synchroniser forcée (grist > iobeya/github)</button>
+    </div>
+
+<pre id="results"
+  style="overflow-y: auto; height: 15em; font-size: 0.7em; white-space: pre-wrap; background: #f8f9fa; padding: 8px; border: 1px solid #ccc; border-radius: 4px;"></pre>
+  <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
+    <button id="downloadJsonBtn" disabled style="font-size: 0.7em; padding: 2px 4px; width: auto;" title="Télécharger les résultats de la vérification au format JSON">Télécharger JSON...</button>
+  </div>
+
+<script>
+    async function loadBoards(roomId) {
+      const boardSelect = document.getElementById('boardSelect');
+      boardSelect.innerHTML = '<option>Chargement...</option>';
+      if (!roomId) return;
+      try {
+        const res = await fetch(`/iobeya-boards?room_id=${encodeURIComponent(roomId)}`);
+        if (!res.ok) throw new Error(`Erreur HTTP ${res.status}`);
+        const data = await res.json();
+        boardSelect.innerHTML = '';
+        if (!Array.isArray(data) || data.length === 0) {
+          const opt = document.createElement('option');
+          opt.textContent = '(Aucun board disponible)';
+          opt.disabled = true;
+          boardSelect.appendChild(opt);
+          return;
+        }
+        for (const board of data) {
+          const option = document.createElement('option');
+          option.value = board.id;
+          option.textContent = board.name || '(Sans nom)';
+          boardSelect.appendChild(option);
+        }
+      } catch (err) {
+        console.error('❌ Erreur lors du chargement des boards iObeya :', err);
+        boardSelect.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.textContent = '(Erreur de chargement des boards)';
+        opt.disabled = true;
+        boardSelect.appendChild(opt);
+      }
+    }
+    async function loadProjects(orgName) {
+      const githubSelect = document.getElementById('githubSelect');
+      githubSelect.innerHTML = '<option>Chargement...</option>';
+
+      if (!orgName) return;
+
+      try {
+        const res = await fetch(`${window.location.origin}/github-projects?org=${encodeURIComponent(orgName)}`);
+        if (!res.ok) {
+          throw new Error(`Erreur HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        githubSelect.innerHTML = '';
+
+        if (!Array.isArray(data) || data.length === 0) {
+          const opt = document.createElement('option');
+          opt.textContent = '(Aucun projet disponible)';
+          opt.disabled = true;
+          githubSelect.appendChild(opt);
+          return;
+        }
+
+        for (const project of data) {
+          const option = document.createElement('option');
+          option.value = project.id;
+          option.textContent = project.name || '(Sans nom)';
+          githubSelect.appendChild(option);
+        }
+
+      } catch (err) {
+        console.error('❌ Erreur lors du chargement des projets GitHub :', err);
+        githubSelect.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.textContent = '(Erreur de chargement des projets)';
+        opt.disabled = true;
+        githubSelect.appendChild(opt);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const orgSelect = document.getElementById('orgSelect');
+      // 1) Charger d'abord les projets pour l'org par défaut (ou premier choix)
+      await loadProjects(orgSelect.value || orgSelect.options[0]?.value);
+      orgSelect.addEventListener('change', () => loadProjects(orgSelect.value));
+
+      // 2) Charger les boards pour la room sélectionnée si présente
+      const roomSelect = document.getElementById('roomSelect');
+      roomSelect.addEventListener('change', () => loadBoards(roomSelect.value));
+      if (roomSelect.value) {
+        await loadBoards(roomSelect.value);
+      }
+
+      // 3) Une fois les menus présents, restaurer proprement les préférences (avec rechargements si besoin)
+      if (typeof loadSettingsFromCookie === 'function') {
+        await loadSettingsFromCookie();
+      }
+    });
+
+    function parseTimestamp(value) {
+      if (value === null || value === undefined || value === '') return null;
+      // Si numérique ou chaîne numérique
+      const num = Number(value);
+      if (!Number.isNaN(num) && isFinite(num)) {
+        // Détecte secondes vs millisecondes
+        const ms = num < 1e12 ? num * 1000 : num;
+        return new Date(ms);
+      }
+      // Tentative de parse natif (ISO/RFC)
+      const d1 = new Date(value);
+      if (!isNaN(d1)) return d1;
+      // Fallback: "YYYY-MM-DD HH:mm:ss" (avec espace ou T)
+      const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+      if (m) {
+        // Interprétation en heure locale
+        return new Date(
+          Number(m[1]),
+          Number(m[2]) - 1,
+          Number(m[3]),
+          Number(m[4]),
+          Number(m[5]),
+          Number(m[6])
+        );
+      }
+      return null;
+    }
+
+    function formatTimestamp(d) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      const tzPart = Intl.DateTimeFormat('fr-FR', { timeZoneName: 'short' })
+        .formatToParts(d)
+        .find(p => p.type === 'timeZoneName')?.value || '';
+      return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss} ${tzPart}`;
+    }
+
+    let lastVerification = null;
+
+    async function runVerification() {
+      document.getElementById('syncBtn').disabled = true;
+      document.getElementById('overwriteBtn').disabled = true;
+
+      const body = {
+        epic: document.getElementById('epicSelect').value,
+        pi: document.getElementById('piInput').value,
+        room: document.getElementById('roomSelect').value,
+        project: document.getElementById('githubSelect').value,
+        rename_deleted: document.getElementById('delCheckbox').checked,
+        iobeya_board_id: document.getElementById('boardSelect').value,
+        github_project_id: document.getElementById('githubSelect').value
+      };
+      const res = await fetch('/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+      lastVerification = body;
+      const resultContainer = document.getElementById('results');
+      resultContainer.innerHTML = "";
+
+      function renderSection(title, dataArray) {
+        if (!dataArray || dataArray.length === 0) {
+          resultContainer.innerHTML += `<div class='result-separator'><hr><span>${title}</span><hr></div><em>Aucune donnée ${title} disponible.</em>`;
+          return;
+        }
+
+        resultContainer.innerHTML += `<div class='result-separator'><hr><span>${title}</span><hr></div>`;
+        let table = "<table style='border-collapse: collapse; width: 100%; font-size: 0.8em;'>";
+        table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>ID Épic</th><th style='width:10%'>ID Feature</th><th style='width:67%'>Nom</th><th style='width:15%'>Timestamp</th></tr>";
+        for (const row of dataArray) {
+          let formattedTs = '';
+          const d = parseTimestamp(row.timestamp);
+          if (d) formattedTs = formatTimestamp(d);
+          table += `<tr>
+            <td style='border:1px solid #ccc;padding:4px;'>${row.id_Epic || ''}</td>
+            <td style='border:1px solid #ccc;padding:4px;'>${row.id_feature || ''}</td>
+            <td style='border:1px solid #ccc;padding:4px;'>${row.Nom_Feature || ''}</td>
+            <td style='border:1px solid #ccc;padding:4px;'>${formattedTs}</td>
+          </tr>`;
+        }
+        table += "</table>";
+        resultContainer.innerHTML += table;
+      }
+
+      renderSection('grist', data.grist);
+      renderSection('iobeya', data.iobeya);
+      renderSection('github', data.github);
+      renderSection('modifications dans iObeya', data.iobeya_diff);
+      renderSection('modifications dans GitHub', data.github_diff);
+
+      document.getElementById('syncBtn').disabled = false;
+      document.getElementById('overwriteBtn').disabled = false;
+      const downloadBtn = document.getElementById('downloadJsonBtn');
+      downloadBtn.disabled = false;
+
+      downloadBtn.onclick = () => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'verification_result.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+    }
+
+    document.getElementById('verifyBtn').onclick = runVerification;
+
+    document.getElementById('syncBtn').onclick = async () => {
+      if (!lastVerification) {
+        alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
+        return;
+      }
+      const res = await fetch('/sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ...lastVerification, force_overwrite: false, pi: document.getElementById('piInput').value })
+      });
+      await res.json();
+      alert('Synchronisation terminée.');
+    };
+
+    document.getElementById('overwriteBtn').onclick = async () => {
+      if (!lastVerification) {
+        alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
+        return;
+      }
+      if (!confirm("⚠️ Cette action écrasera la destination (iObeya + GitHub). Continuer ?")) return;
+      const res = await fetch('/sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ...lastVerification, force_overwrite: true, pi: document.getElementById('piInput').value })
+      });
+      await res.json();
+      alert('Écrasement complet effectué.');
+    };
+</script>
+
+  <script>
+    function saveSettingsToCookie() {
+      const settings = {
+        pi: document.getElementById('piInput').value,
+        epic: document.getElementById('epicSelect').value,
+        room: document.getElementById('roomSelect').value,
+        board: document.getElementById('boardSelect').value,
+        org: document.getElementById('orgSelect').value,
+        project: document.getElementById('githubSelect').value,
+        rename_deleted: document.getElementById('delCheckbox').checked
+      };
+      document.cookie = "syncSettings=" + encodeURIComponent(JSON.stringify(settings)) + "; path=/; max-age=" + (60*60*24*30);
+      // Ajout d'un indicateur visuel temporaire
+      const msg = document.createElement('div');
+      msg.textContent = '✅ Préférences sauvegardées';
+      msg.style.position = 'fixed';
+      msg.style.bottom = '20px';
+      msg.style.right = '20px';
+      msg.style.background = '#1976d2';
+      msg.style.color = 'white';
+      msg.style.padding = '8px 12px';
+      msg.style.borderRadius = '6px';
+      msg.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+      msg.style.fontSize = '0.9em';
+      msg.style.zIndex = '10000';
+      document.body.appendChild(msg);
+      setTimeout(() => msg.remove(), 2500);
+    }
+
+    async function loadSettingsFromCookie() {
+      const match = document.cookie.match(/(^| )syncSettings=([^;]+)/);
+      if (!match) return;
+      try {
+        const settings = JSON.parse(decodeURIComponent(match[2]));
+
+        // Champs simples (pas de dépendance asynchrone)
+        if (settings.pi) document.getElementById('piInput').value = settings.pi;
+        document.getElementById('delCheckbox').checked = !!settings.rename_deleted;
+
+        // Restaurer l'organisation et (si besoin) recharger les projets
+        const orgSelect = document.getElementById('orgSelect');
+        const githubSelect = document.getElementById('githubSelect');
+        if (settings.org && orgSelect.value !== settings.org) {
+          orgSelect.value = settings.org;
+          await loadProjects(settings.org); // recharge la liste des projets selon l'org du cookie
+        }
+        if (settings.project) {
+          githubSelect.value = settings.project;
+        }
+
+        // Restaurer la room et (si besoin) recharger les boards
+        const roomSelect = document.getElementById('roomSelect');
+        const boardSelect = document.getElementById('boardSelect');
+        if (settings.room && roomSelect.value !== settings.room) {
+          roomSelect.value = settings.room;
+          await loadBoards(settings.room); // recharge la liste des boards selon la room du cookie
+        }
+        if (settings.board) {
+          boardSelect.value = settings.board;
+        }
+
+        // Épic en dernier (indépendant)
+        if (settings.epic) document.getElementById('epicSelect').value = settings.epic;
+
+        console.log('✅ Paramètres restaurés depuis le cookie (avec rechargements si nécessaire).');
+        // Ajout d'un indicateur visuel temporaire
+        const msg = document.createElement('div');
+        msg.textContent = '✅ Préférences chargées';
+        msg.style.position = 'fixed';
+        msg.style.bottom = '20px';
+        msg.style.right = '20px';
+        msg.style.background = '#1976d2';
+        msg.style.color = 'white';
+        msg.style.padding = '8px 12px';
+        msg.style.borderRadius = '6px';
+        msg.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+        msg.style.fontSize = '0.9em';
+        msg.style.zIndex = '10000';
+        document.body.appendChild(msg);
+        setTimeout(() => msg.remove(), 2500);
+      } catch (err) {
+        console.error('❌ Erreur lors du chargement du cookie :', err);
+      }
+    }
+
+    document.getElementById('saveSettingsBtn').onclick = saveSettingsToCookie;
+    document.getElementById('loadSettingsBtn').onclick = loadSettingsFromCookie;
+
+    // Format compact dd/mm hh:mm:ss pour les timestamps
+    function formatTimestamp(d) {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      return `${dd}/${mm} ${hh}:${mi}:${ss}`;
+    }
+  </script>
+</body>
+</html>

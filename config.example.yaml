@@ -1,14 +1,22 @@
 # Exemple de configuration pour le MVP iObeya → GitHub Projects
+grist:
+  api_url: "http://localhost:8484/"
+  api_token: "25e74e53a48a1044c2b408bee961ef29a44b9a29"
+  default_doc_id: "gono5ujFTW2eoVBmShrxGX"
+  default_epic_table: "Epics"
+  default_feature_table: "Features"
+
 iobeya:
-  base_url: "https://iobeya.example.com"
-  board_id: "BOARD_ID_HERE"
-  username: "user@example.com"
-  password: "**************"
-  # ou token: "IOBEYA_API_TOKEN"
+  base_url: "https://iobeya.numerique-interieur.com"
+  token: "eyJraWQiOiJyc2ExIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJhcGktc3luY2hybyIsImF6cCI6InNlbGZ0b2tlbiIsImlzcyI6Imh0dHBzOlwvXC9pb2JleWEubnVtZXJpcXVlLWludGVyaWV1ci5jb21cL3NcL29hdXRoIiwiZXhwIjoxNzkxMjkxOTUwLCJpYXQiOjE3NTk3NTU5NTAsImp0aSI6IjhhYTNmZjQ2LWI1MjktNDUwMC1iMjJmLTcxMDQ3ZWE5NzllZCJ9.d5lsxK6HB17IU2-ZiMPT3nVGxERuSVNyjjRSob6rNSufKRzWO14vGPRJxhdf3xIIJHAR-fBVgCJ1_W7sHVo1rSsTjGxmDI0tmrwOSXqztIL3caXfg3NbBaP9TG-YxRV9d6eTEMaj-SCGbH-J6jaIlRUHYWMR9moKzGtKySc0plyqbeNZfpX7OSYl_KDQ4SxfT-xvGGF_pkjRxwnXAc8oLN0OvAQtiONFqwqsgLtz3JZ8hBuQkUCPMq2O0ZJ08VVmNquqXoCAvHk8mzy_CzYlNUVu8GPytsFVkrryM9RywB1Ya9F4UlCtuhUplpf9pkpGJ7KePqzsOLXd77mU9ZCkyA"
+  types_card_features: ["Feature", "Enabler", "Enabler"] #defini les types de cartes iObeya à synchroniser
 
 github:
-  project_id: "PROJECT_V2_NODE_ID"
-  token_env_var: "GITHUB_TOKEN"
+  token_env_var: "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"
+  organizations:
+    - ia-generative
+    - dnum-mi
+    - cloud-pi-native
 
 mapping:
   states:

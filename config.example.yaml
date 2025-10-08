@@ -1,19 +1,19 @@
 # Exemple de configuration pour le MVP iObeya → GitHub Projects
 grist:
   api_url: "http://localhost:8484/"
-  api_token: "grist_api_token_example"
+  api_token: "put_here_grist_api_token"
   default_doc_id: "exampleDoc123"
   default_epic_table: "Epics"
   default_feature_table: "Features"
 
 iobeya:
   base_url: "https://iobeya.example.com"
-  token: "iobeya_token_example"
+  token: "put_here_iobeya_token"
   types_card_features: ["Feature", "Enabler"] # Définit les types de cartes iObeya à synchroniser
 
 github:
   project_id: "example_project_v2_node_id"
-  token_env_var: "github_token_example"
+  token_env_var: "<put_here_github_token"
   organizations:
     - my-org-example
     - innovation-lab

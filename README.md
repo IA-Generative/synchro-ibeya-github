@@ -49,6 +49,7 @@ La synchronisation repose sur une logique de comparaison :
 ### 2. Étapes d’utilisation
 
 1. **Sélection des paramètres**
+   - Indiquez sur quel incrément de planning (PI) la synchronisation doit s'effectuer.
    - Choisissez :
      - l’**Epic** concerné,
      - le document et la table **Grist** à utiliser,

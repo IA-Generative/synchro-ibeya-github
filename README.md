@@ -19,19 +19,11 @@ pip install -r requirements.txt
 ```bash
 python -m webapp.app
 ```
-Puis ouvrez [http://localhost:8080](http://localhost:8080)
+Puis ouvrez avec votre navigateur l'emplacement [http://localhost:8080](http://localhost:8080) si utilisation en local ou à l'emplacement hébergé sur un serveur.
 
 ## Utilisation et logique du projet
 
-Une fois le serveur lancé avec :
-
-```bash
-python -m webapp.app
-```
-
-ouvrez votre navigateur à l’adresse [http://localhost:8080](http://localhost:8080) si local ou à l'emplacement hébergé.
-
-Vous accéderez alors à l’interface Web complète de synchronisation entre **Grist**, **iObeya** et **GitHub**.
+Vous accédez alors à l’interface Web complète de synchronisation entre **Grist**, **iObeya** et **GitHub**.
 
 ![Interface Web de synchronisation](images/screen.png)
 

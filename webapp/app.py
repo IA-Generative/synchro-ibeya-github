@@ -2,12 +2,14 @@ from flask import Flask, render_template, request, jsonify
 import requests
 import yaml
 import os
-from sync.sync import get_grist_features, get_grist_epics
+from sync.sync import get_grist_features, get_grist_epics, get_iobeya_features, get_github_features, compute_diff  # si déjà dans ce fichier, pas besoin du point
+
 
 app = Flask(__name__)
 
 # Load configuration from config.yaml or config.example.yaml
 config_path = "config.yaml" if os.path.exists("config.yaml") else "config.example.yaml"
+
 with open(config_path, "r") as f:
     config = yaml.safe_load(f)
 
@@ -29,12 +31,12 @@ IOBEYA_TYPES_CARD_FEATURES = iobeya_conf.get("types_card_features", [])
 
 # GitHub configuration
 github_conf = config.get("github", {})
-GITHUB_PROJECT_ID = github_conf.get("project_id", "")
 GITHUB_TOKEN_ENV_VAR = github_conf.get("token_env_var", "")
 GITHUB_ORGANIZATIONS = github_conf.get("organizations", [])
 
 ##
 
+g_list_epics = []
 g_features_list_grist = []
 g_features_list_iobeya = []
 g_features_list_github = []
@@ -118,6 +120,8 @@ def list_boards(room_id):
         print(f"⚠️ Erreur API iObeya (boards) : {e}")
         return [{"id": "error", "name": "[Erreur connexion iObeya]"}]
 
+
+
 def list_organizations():
     github_conf = config.get("github", {})
     organizations = github_conf.get("organizations", [])
@@ -130,7 +134,8 @@ def list_projects(): return ["GitHub Project X", "GitHub Project Y"]
 
 @app.route("/")
 def index():
-    return render_template("index.html", epics=list_epics(),
+    g_list_epics = list_epics()
+    return render_template("index.html", epics=g_list_epics,
                            rooms=list_rooms(), projects=list_projects(),
                            organizations=list_organizations())
 
@@ -176,11 +181,42 @@ def verify():
     
     # récupérer les features depuis iObeya
 
-        g_features_list_iobeya = get_iobeya_features(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, grist_table,epic)
-
+    try:
+        g_features_list_iobeya = get_iobeya_features(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN,IOBEYA_TYPES_CARD_FEATURES)
+        print(f"✅ {len(g_features_list_iobeya)} features récupérées depuis iObeya (app.py).")
+    except Exception as e:
+        print(f"❌ Erreur lors de la récupération des features iobeya : {e}")
+        g_features_list_iobeya.clear()
     
     # récupérer les features depuis GitHub
+    
+    try:
+        g_features_list_github = get_github_features(github_project_id, GITHUB_TOKEN_ENV_VAR)
+        print(f"✅ {len(g_features_list_github)} features récupérées depuis GitHub (app.py).")
+    except Exception as e:
+        print(f"❌ Erreur lors de la récupération des features GitHub : {e}")
+        g_features_list_github.clear()
         
+    # récupérer les diffs
+    g_features_list_iobeya_diff = []
+    g_features_list_github_diff = []
+
+    try:
+        # Extract id_Epic value from g_features_list_epics matching the selected epic
+        g_list_epics = list_epics() 
+        id_epic_value = None
+        for e in g_list_epics:
+            if int(e.get("id")) == int(epic):
+                id_epic_value = e.get("id_epic")
+                break
+        g_features_list_iobeya_diff = compute_diff(g_features_list_grist, g_features_list_iobeya, rename_deleted, id_epic_value)
+        print(f"✅ {len(g_features_list_iobeya_diff)} différences récupérées depuis iObeya (app.py).")
+        g_features_list_github_diff = compute_diff(g_features_list_grist, g_features_list_github, rename_deleted, id_epic_value)
+        print(f"✅ {len(g_features_list_github_diff)} différences récupérées depuis GitHub (app.py).")
+    except Exception as e:
+        print(f"❌ Erreur lors de la récupération des features GitHub : {e}")
+        g_features_list_github.clear()
+
     return jsonify({
         "grist": g_features_list_grist,
         "iobeya": g_features_list_iobeya,
@@ -203,12 +239,8 @@ def github_projects():
     org_name = request.args.get("org")
     if not org_name:
         return jsonify({"error": "Paramètre 'org' manquant"}), 400
-
-    github_conf = config.get("github", {})
-    token_var = github_conf.get("token_env_var")
-    github_token = token_var
     
-    if not github_token:
+    if not GITHUB_TOKEN_ENV_VAR:
         print("❌ Token GitHub manquant ou non défini dans l'environnement")
         return jsonify({"error": "Token GitHub manquant ou non défini dans l'environnement"}), 401
 
@@ -231,7 +263,7 @@ def github_projects():
     }
 
     headers = {
-        "Authorization": f"Bearer {github_token}",
+        "Authorization": f"Bearer {GITHUB_TOKEN_ENV_VAR}",
         "Accept": "application/vnd.github+json"
     }
 

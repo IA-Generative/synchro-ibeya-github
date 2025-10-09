@@ -219,6 +219,7 @@
       <div class="settings-buttons">
         <button id="saveSettingsBtn" title="Sauvegarder les préférences dans un cookie">💾</button>
         <button id="loadSettingsBtn" title="Charger les préférences enregistrées depuis le cookie">📖</button>
+        <button id="deleteSettingsBtn" title="Supprimer les préférences enregistrées">🗑️</button>
       </div>
     </div>
 
@@ -271,14 +272,17 @@
     </div>
 
     <label style="font-weight: 400; margin-top: 1.3em;">
-      <input type="checkbox" id="delCheckbox" />
+      <input type="checkbox" id="delCheckbox" checked />
       Renommer les éléments supprimés avec "del_"
     </label>
+    <small id="delWarning" style="display:none; color:#b37e14; font-size:0.75em; margin-left:1.8em; width:70%; display:block; text-align:left;">
+      ⚠️ Si usage de <b>Synchronisation forcée</b> les features n'existant pas dans Grist seront <b>définitivement supprimées</b> dans iObeya et/ou GitHub. <br/>En revanche, lors d’une synchronisation bidirectionnelle, elles seront importées dans Grist.
+    </small>
 
     <div style="margin: 1.5em 0 0.5em 0;">
       <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button>
-      <button id="syncBtn" disabled title="Synchronise les données dans les deux sens (Grist ↔ iObeya ↔ GitHub)">Synchroniser (bi-directionnel)</button>
-      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub (écrasement complet)">Synchroniser forcée (grist > iobeya/github)</button>
+      <button id="syncBtn" disabled title="Synchronise les données dans les deux sens (Grist ↔ iObeya ↔ GitHub)">Synchronisation bi-directionnelle</button>
+      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub (écrasement sauf si del_)">Synchronisation forcée (grist=maitre)</button>
     </div>
 
 <pre id="results"
@@ -452,19 +456,43 @@
         }
 
         resultContainer.innerHTML += `<div class='result-separator'><hr><span>${title}</span><hr></div>`;
+
+        // Détection par structure : présence d'un champ "action" dans les lignes
+        const hasAction = Array.isArray(dataArray) && dataArray.some(r => r && typeof r === 'object' && ('action' in r));
+
         let table = "<table style='border-collapse: collapse; width: 100%; font-size: 0.8em;'>";
-        table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>ID Épic</th><th style='width:10%'>ID Feature</th><th style='width:67%'>Nom</th><th style='width:15%'>Timestamp</th></tr>";
-        for (const row of dataArray) {
-          let formattedTs = '';
-          const d = parseTimestamp(row.timestamp);
-          if (d) formattedTs = formatTimestamp(d);
-          table += `<tr>
-            <td style='border:1px solid #ccc;padding:4px;'>${row.id_Epic || ''}</td>
-            <td style='border:1px solid #ccc;padding:4px;'>${row.id_feature || ''}</td>
-            <td style='border:1px solid #ccc;padding:4px;'>${row.Nom_Feature || ''}</td>
-            <td style='border:1px solid #ccc;padding:4px;'>${formattedTs}</td>
-          </tr>`;
+        if (hasAction) {
+          table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>Action</th><th style='width:8%'>ID Épic</th><th style='width:10%'>ID Feature</th><th style='width:59%'>Nom</th><th style='width:15%'>Timestamp</th></tr>";
+        } else {
+          table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>ID Épic</th><th style='width:10%'>ID Feature</th><th style='width:67%'>Nom</th><th style='width:15%'>Timestamp</th></tr>";
         }
+
+        for (const row of dataArray) {
+          // Les diff peuvent encapsuler les données réelles dans "feature"
+          const rowData = (row && typeof row === 'object' && 'feature' in row && row.feature) ? row.feature : row;
+
+          let formattedTs = '';
+          const d = parseTimestamp(rowData?.timestamp);
+          if (d) formattedTs = formatTimestamp(d);
+
+          if (hasAction) {
+            table += `<tr>
+              <td style='border:1px solid #ccc;padding:4px;'>${row?.action || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_Epic || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_feature || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.Nom_Feature || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${formattedTs}</td>
+            </tr>`;
+          } else {
+            table += `<tr>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_Epic || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_feature || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.Nom_Feature || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${formattedTs}</td>
+            </tr>`;
+          }
+        }
+
         table += "</table>";
         resultContainer.innerHTML += table;
       }
@@ -472,7 +500,7 @@
       renderSection('grist', data.grist);
       renderSection('iobeya', data.iobeya);
       renderSection('github', data.github);
-      renderSection('modifications dans iObeya', data.iobeya_diff);
+      renderSection('modifications à faire dans iObeya', data.iobeya_diff);
       renderSection('modifications dans GitHub', data.github_diff);
 
       document.getElementById('syncBtn').disabled = false;
@@ -554,6 +582,25 @@
       setTimeout(() => msg.remove(), 2500);
     }
 
+    // Ajout: suppression du cookie + notification
+    function deleteSettingsCookie() {
+      document.cookie = "syncSettings=; path=/; max-age=0";
+      const msg = document.createElement('div');
+      msg.textContent = '🗑️ Préférences supprimées';
+      msg.style.position = 'fixed';
+      msg.style.bottom = '20px';
+      msg.style.right = '20px';
+      msg.style.background = '#c62828';
+      msg.style.color = 'white';
+      msg.style.padding = '8px 12px';
+      msg.style.borderRadius = '6px';
+      msg.style.boxShadow = '0 2px 8px rgba(0,0,0,0.2)';
+      msg.style.fontSize = '0.9em';
+      msg.style.zIndex = '10000';
+      document.body.appendChild(msg);
+      setTimeout(() => msg.remove(), 2500);
+    }
+
     async function loadSettingsFromCookie() {
       const match = document.cookie.match(/(^| )syncSettings=([^;]+)/);
       if (!match) return;
@@ -612,6 +659,7 @@
 
     document.getElementById('saveSettingsBtn').onclick = saveSettingsToCookie;
     document.getElementById('loadSettingsBtn').onclick = loadSettingsFromCookie;
+    document.getElementById('deleteSettingsBtn').onclick = deleteSettingsCookie;
 
     // Format compact dd/mm hh:mm:ss pour les timestamps
     function formatTimestamp(d) {
@@ -622,6 +670,19 @@
       const ss = String(d.getSeconds()).padStart(2, '0');
       return `${dd}/${mm} ${hh}:${mi}:${ss}`;
     }
+  </script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const delCheckbox = document.getElementById('delCheckbox');
+      const delWarning = document.getElementById('delWarning');
+
+      function updateWarning() {
+        delWarning.style.display = delCheckbox.checked ? 'none' : 'block';
+      }
+
+      delCheckbox.addEventListener('change', updateWarning);
+      updateWarning(); // met à jour à l'initialisation
+    });
   </script>
 </body>
 </html>

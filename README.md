@@ -69,7 +69,4 @@ La synchronisation repose sur une logique de comparaison :
 
 4. **Sauvegarde des préférences**
    - Les sélections (Epic, room, projet, etc.) peuvent être enregistrées dans un **cookie** via le bouton **« Sauvegarder les préférences »**, puis restaurées avec **« Charger les préférences »** au prochain démarrage.
-
-5. **Autres contrôles**
-   - Une case à cocher **« Suppression définitive »** active un avertissement indiquant que les éléments inexistants dans Grist seront effacés dans iObeya et GitHub lors d’une synchronisation forcée.  
    - Le bouton **« Supprimer les préférences »** efface le cookie enregistré.

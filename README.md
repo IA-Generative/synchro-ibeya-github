@@ -48,13 +48,16 @@ La synchronisation repose sur une logique de comparaison :
 
 ### 2. Étapes d’utilisation
 
+0. **Accéder à l'url du front**
+    La page se charge et récupère via les API respectives les premières informations.
+    Si vous avez enregistré précédemment les sélections dans un cookie, ces valeurs seront rechargées automatiquement. (un message s'affiche l'indiquant)
+
 1. **Sélection des paramètres**
    - Indiquez sur quel incrément de planning (PI) la synchronisation doit s'effectuer.
    - Choisissez :
      - l’**Epic** concerné,
-     - le document et la table **Grist** à utiliser,
-     - la **Room iObeya** et le **Board** cible,
-     - le **projet GitHub** correspondant.  
+     - la **Room iObeya**, puis le **Board** cible. (les rooms et les boards sont chargés dynamiquement),
+     - l'organisation, puis le **projet GitHub** correspondant.  (les projets sont chargés dynamiquement depuis l'organisation sélectionnée)
    Ces menus sont automatiquement alimentés via les API respectives.
 
 2. **Préparation**

@@ -29,7 +29,8 @@ Une fois le serveur lancé avec :
 python -m webapp.app
 ```
 
-ouvrez votre navigateur à l’adresse [http://localhost:8080](http://localhost:8080).  
+ouvrez votre navigateur à l’adresse [http://localhost:8080](http://localhost:8080) si local ou à l'emplacement hébergé.
+
 Vous accéderez alors à l’interface Web complète de synchronisation entre **Grist**, **iObeya** et **GitHub**.
 
 ![Interface Web de synchronisation](images/screen.png)

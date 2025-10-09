@@ -57,21 +57,19 @@ La synchronisation repose sur une logique de comparaison :
    Ces menus sont automatiquement alimentés via les API respectives.
 
 2. **Préparation**
-   - Cliquez sur le bouton **« Préparer »** pour charger et comparer les données entre les trois systèmes.  
+   - Cliquez sur le bouton **« Préparer »** pour charger et comparer les données entre les trois systèmes, sans effectuer de synchronisation.
    - Un tableau récapitulatif s’affiche, indiquant les différences détectées (ajouts, modifications, suppressions).
-
-3. **Vérification**
-   - Le bouton **« Vérifier »** permet de relancer la comparaison sans effectuer de synchronisation.
    - Vous pouvez ainsi visualiser les écarts avant toute action.
+   - le bouton **Télécharger JSON...** permet de télécharger l'ensemble des différences pour aider à la vérification ou sauvegarde des données manipulées.
 
-4. **Synchronisation**
+3. **Synchronisation**
    - **« Synchroniser »** : met à jour les éléments des systèmes cibles uniquement là où des différences existent.  
    - **« Synchronisation forcée »** : écrase totalement les données des destinations avec celles de Grist (⚠️ à utiliser avec prudence).  
    - Si la case **« Renommer les éléments supprimés »** est cochée, les éléments supprimés seront renommés avec le préfixe `del_` au lieu d’être supprimés définitivement.
 
-5. **Sauvegarde des préférences**
+4. **Sauvegarde des préférences**
    - Les sélections (Epic, room, projet, etc.) peuvent être enregistrées dans un **cookie** via le bouton **« Sauvegarder les préférences »**, puis restaurées avec **« Charger les préférences »** au prochain démarrage.
 
-6. **Autres contrôles**
+5. **Autres contrôles**
    - Une case à cocher **« Suppression définitive »** active un avertissement indiquant que les éléments inexistants dans Grist seront effacés dans iObeya et GitHub lors d’une synchronisation forcée.  
    - Le bouton **« Supprimer les préférences »** efface le cookie enregistré.

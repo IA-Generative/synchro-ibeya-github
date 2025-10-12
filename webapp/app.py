@@ -1,8 +1,10 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, make_response
 import requests
 import yaml
 import os
-from sync.sync import get_grist_features, get_grist_epics, get_iobeya_features, get_github_features, compute_diff  # si déjà dans ce fichier, pas besoin du point
+from sync.sync import get_grist_features, get_grist_epics, get_iobeya_features, get_github_features, compute_diff, synchronize_all  # si déjà dans ce fichier, pas besoin du point
+from webapp.session_store import session_store
+import uuid
 
 
 app = Flask(__name__)
@@ -35,13 +37,6 @@ GITHUB_TOKEN_ENV_VAR = github_conf.get("token_env_var", "")
 GITHUB_ORGANIZATIONS = github_conf.get("organizations", [])
 
 ##
-
-g_list_epics = []
-g_features_list_grist = []
-g_features_list_iobeya = []
-g_features_list_github = []
-g_features_list_github_diff = []
-g_features_list_iobeya_diff = []
 
 def list_epics():
     epics = get_grist_epics(GRIST_API_URL, GRIST_DOC_ID, GRIST_API_TOKEN, GRIST_EPIC_TABLE_NAME)
@@ -132,6 +127,15 @@ def list_organizations():
 
 def list_projects(): return ["GitHub Project X", "GitHub Project Y"]
 
+@app.before_request
+def ensure_session():
+    """Assure qu’un identifiant de session est présent."""
+    if not request.cookies.get("session_id"):
+        session_id = str(uuid.uuid4())
+        resp = make_response()
+        resp.set_cookie("session_id", session_id, httponly=True)
+        return resp
+
 @app.route("/")
 def index():
     g_list_epics = list_epics()
@@ -141,7 +145,6 @@ def index():
 
 @app.route("/verify", methods=["GET", "POST"])
 def verify():
-    global g_features_list_grist
     # Defaults
     default_iobeya_board_id = None
     default_github_project_id = None
@@ -171,68 +174,147 @@ def verify():
 
     print(f"Received params: grist_doc_id={grist_doc_id}, iobeya_board_id={iobeya_board_id}, github_project_id={github_project_id}, pi={pi}, epic={epic}, room={room}, project={project}, rename_deleted={rename_deleted}")
 
+    session_id = request.cookies.get("session_id")
+    session_id, session_data = session_store.get_or_create_session(session_id)
+
+    # récupérer les features depuis grist
+    
     try:
         df, last_update = get_grist_features(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, grist_table,epic)
-        g_features_list_grist = df.to_dict(orient="records") if not df.empty else []
-        print(f"✅ {len(g_features_list_grist)} features récupérées depuis Grist (app.py).")
+        session_data["grist"] = df.to_dict(orient="records") if not df.empty else []
+        print(f"✅ {len(session_data['grist'])} features récupérées depuis Grist (app.py).")
     except Exception as e:
         print(f"❌ Erreur lors de la récupération des features Grist : {e}")
-        g_features_list_grist.clear()
+        session_data["grist"].clear()
     
     # récupérer les features depuis iObeya
 
     try:
-        g_features_list_iobeya = get_iobeya_features(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN,IOBEYA_TYPES_CARD_FEATURES)
-        print(f"✅ {len(g_features_list_iobeya)} features récupérées depuis iObeya (app.py).")
+        session_data["iobeya"] = get_iobeya_features(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN,IOBEYA_TYPES_CARD_FEATURES)
+        print(f"✅ {len(session_data['iobeya'])} features récupérées depuis iObeya (app.py).")
     except Exception as e:
         print(f"❌ Erreur lors de la récupération des features iobeya : {e}")
-        g_features_list_iobeya.clear()
+        session_data["iobeya"].clear()
     
     # récupérer les features depuis GitHub
     
     try:
-        g_features_list_github = get_github_features(github_project_id, GITHUB_TOKEN_ENV_VAR)
-        print(f"✅ {len(g_features_list_github)} features récupérées depuis GitHub (app.py).")
+        session_data["github"] = get_github_features(github_project_id, GITHUB_TOKEN_ENV_VAR)
+        print(f"✅ {len(session_data['github'])} features récupérées depuis GitHub (app.py).")
     except Exception as e:
         print(f"❌ Erreur lors de la récupération des features GitHub : {e}")
-        g_features_list_github.clear()
+        session_data["github"].clear()
         
     # récupérer les diffs
-    g_features_list_iobeya_diff = []
-    g_features_list_github_diff = []
+    session_data["iobeya_diff"].clear()
+    session_data["github_diff"].clear()
 
     try:
-        # Extract id_Epic value from g_features_list_epics matching the selected epic
+        
+        ### récupère la liste des epics pour filtrer les diffs en fonction de l'epic sélectionné
         g_list_epics = list_epics() 
         id_epic_value = None
         for e in g_list_epics:
             if int(e.get("id")) == int(epic):
                 id_epic_value = e.get("id_epic")
-                break
-        g_features_list_iobeya_diff = compute_diff(g_features_list_grist, g_features_list_iobeya, rename_deleted, id_epic_value)
-        print(f"✅ {len(g_features_list_iobeya_diff)} différences récupérées depuis iObeya (app.py).")
-        g_features_list_github_diff = compute_diff(g_features_list_grist, g_features_list_github, rename_deleted, id_epic_value)
-        print(f"✅ {len(g_features_list_github_diff)} différences récupérées depuis GitHub (app.py).")
+                break     
+        
+        ### Calcul des diffs iObeya et GitHub vs grist
+        
+        session_data["iobeya_diff"] = compute_diff(session_data["grist"], session_data["iobeya"], rename_deleted, id_epic_value)
+        print(f"✅ {len(session_data['iobeya_diff'])} différences récupérées depuis iObeya (app.py).")
+        
+        session_data["github_diff"] = compute_diff(session_data["grist"], session_data["github"], rename_deleted, id_epic_value)
+        print(f"✅ {len(session_data['github_diff'])} différences récupérées depuis GitHub (app.py).")
+
+        # NOTE : Pour se rappeller >> la synchronisation bidirectionnelle doit également synchroniser les features "not_present" entre iobeya et github (voir sync.py)
+
     except Exception as e:
         print(f"❌ Erreur lors de la récupération des features GitHub : {e}")
-        g_features_list_github.clear()
+        session_data["github"].clear()
+
+    session_store.set(session_id, session_data)
 
     return jsonify({
-        "grist": g_features_list_grist,
-        "iobeya": g_features_list_iobeya,
-        "github": g_features_list_github,
-        "iobeya_diff": g_features_list_iobeya_diff,
-        "github_diff": g_features_list_github_diff
+        "grist": session_data["grist"],
+        "iobeya": session_data["iobeya"],
+        "github": session_data["github"],
+        "iobeya_diff": session_data["iobeya_diff"],
+        "github_diff": session_data["github_diff"]
     })
 
 @app.route("/sync", methods=["POST"])
 def sync():
-    data = request.json
-    pi = data.get("pi", 5)  # valeur par défaut = 5
-    force = data.get("force_overwrite", False)
-    print(f"🔁 Synchronisation lancée pour PI {pi}")
-    result = synchronize_all(data, force_overwrite=force)
-    return jsonify({"status": "ok", "force": force, "pi": pi, "result": result})
+    # Récupérer explicitement les paramètres nécessaires
+    if request.method == "POST":
+        data = request.get_json(silent=True) or request.form or {}
+        iobeya_board_id = data.get("iobeya_board_id")
+        github_project_id = data.get("github_project_id")
+        epic_id = data.get("epic_id")
+        rename_deleted = data.get("rename_deleted")
+        force_overwrite = data.get("force_overwrite")
+        pi = data.get("pi")
+    else:
+        iobeya_board_id = request.args.get("iobeya_board_id")
+        github_project_id = request.args.get("github_project_id")
+        epic_id = request.args.get("epic_id")
+        rename_deleted = request.args.get("rename_deleted")
+        force_overwrite = request.args.get("force_overwrite")
+        pi = request.args.get("pi")
+
+    print("🔁 Paramètres reçus pour synchronisation :")
+    print(f"  iobeya_board_id = {iobeya_board_id}")
+    print(f"  github_project_id = {github_project_id}")
+    print(f"  epic_id = {epic_id}")
+    print(f"  rename_deleted = {rename_deleted}")
+    print(f"  force_overwrite = {force_overwrite}")
+    print(f"  pi = {pi}")
+
+    grist_params = {
+        "api_url": GRIST_API_URL,
+        "doc_id": GRIST_DOC_ID,
+        "api_token": GRIST_API_TOKEN,
+        "feature_table_name": GRIST_FEATURE_TABLE_NAME
+    }
+
+    iobeya_params = {
+        "api_url": IOBEYA_API_URL,
+        "board_id": iobeya_board_id,
+        "api_token": IOBEYA_API_TOKEN
+    }
+
+    github_params = {
+        "project_id": github_project_id,
+        "token_env_var": GITHUB_TOKEN_ENV_VAR
+    }
+
+    session_id = request.cookies.get("session_id")
+    _, session_data = session_store.get_or_create_session(session_id)
+
+    # Update sync_context with parameters from request
+    session_data["epic_id"] = epic_id
+    session_data["rename_deleted"] = rename_deleted
+    session_data["force_overwrite"] = force_overwrite
+    session_data["pi"] = pi
+
+    # Appel effectif à synchronize_all avec les dictionnaires de paramètres
+    result = synchronize_all(
+        grist_params,
+        iobeya_params,
+        github_params,
+        session_data
+    )
+
+    return jsonify({
+        "status": "ok",
+        "iobeya_board_id": iobeya_board_id,
+        "github_project_id": github_project_id,
+        "epic_id": epic_id,
+        "rename_deleted": rename_deleted,
+        "force_overwrite": force_overwrite,
+        "pi": pi,
+        "result": result
+    })
 
 @app.route("/github-projects")
 def github_projects():

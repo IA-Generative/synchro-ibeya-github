@@ -1,9 +1,144 @@
+
+# Nouvelle fonction utilitaire pour récupérer le nom complet du repo à partir du project_id GitHub
+def get_repo_full_name_from_project_id(project_id, github_token):
+    """
+    Récupère le nom complet du dépôt (organisation/repo) associé à un project_id GitHub (ProjectV2).
+    Retourne le nom complet du dépôt (str) ou None si non trouvé/erreur.
+    """
+    import requests
+    graphql_url = "https://api.github.com/graphql"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json"
+    }
+    query = """
+    query($projectId: ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          repository {
+            nameWithOwner
+          }
+          owner {
+            ... on Organization {
+              login
+            }
+            ... on User {
+              login
+            }
+          }
+          repositories(first: 1) {
+            nodes {
+              nameWithOwner
+            }
+          }
+        }
+      }
+    }
+    """
+    variables = {"projectId": project_id}
+    try:
+        resp = requests.post(graphql_url, headers=headers, json={"query": query, "variables": variables}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        node = data.get("data", {}).get("node", {})
+        repo_full_name = None
+        if node.get("repository") and node["repository"].get("nameWithOwner"):
+            repo_full_name = node["repository"]["nameWithOwner"]
+        elif node.get("repositories", {}).get("nodes"):
+            repos = node["repositories"]["nodes"]
+            if repos and repos[0].get("nameWithOwner"):
+                repo_full_name = repos[0]["nameWithOwner"]
+        elif node.get("owner", {}).get("login") and node.get("title"):
+            repo_full_name = f"{node['owner']['login']}/{node['title']}"
+        if not repo_full_name:
+            print(f"❌ Impossible de déterminer le dépôt GitHub à partir du project_id {project_id}")
+            return None
+        return repo_full_name
+    except requests.RequestException as e:
+        print(f"❌ Erreur lors de la récupération du dépôt GitHub pour le project_id {project_id} : {e}")
+        return None
 import requests
 from datetime import datetime
 import pandas as pd
 import uuid
 import random
 import json
+
+def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
+    """
+    Effectue la synchronisation complète entre Grist, iObeya et GitHub.
+
+    Args:
+        grist_conf (dict): paramètres Grist, ex:
+            {
+                "api_url": "...",
+                "doc_id": "...",
+                "api_token": "...",
+                "feature_table_name": "Features"
+            }
+        iobeya_conf (dict): paramètres iObeya, ex:
+            {
+                "api_url": "...",
+                "board_id": "...",
+                "api_token": "..."
+            }
+        github_conf (dict): paramètres GitHub, ex:
+            {
+                "project_id": "...",
+                "token_env_var": "..."
+            }
+        context (dict): informations de synchronisation, ex:
+            {
+                "github_diff": [...],
+                "iobeya_diff": [...],
+                "epics_list": [...],
+                "epic_id": "...",
+                "rename_deleted": True/False,
+                "force_overwrite": True/False,
+                "pi": "PI-04"
+            }
+
+    Returns:
+        dict: résultat de la synchronisation (succès, erreurs, statistiques, etc.)
+    """
+
+    print("🚀 Démarrage de synchronize_all()")
+    print(f"PI : {context.get('pi')} | Force overwrite : {context.get('force_overwrite')}")
+
+    result = {
+        "status": "started",
+        "grist_synced": False,
+        "iobeya_synced": False,
+        "github_synced": False,
+        "details": {}
+    }
+
+    try:
+        # Étape 0 — Si force_overwrite est false on commence par créer les features manquantes dans grist
+        if not context.get("force_overwrite", False):
+            print("🔁 Création des features manquantes dans Grist...")
+            create_missing_features_in_grist(grist_conf, context)
+            
+        # Étape 1 — Synchronisation Grist → iObeya
+        print("🔁 Synchronisation Grist → iObeya en cours...")
+        # TODO: appel logique d’import / export ici
+        result["iobeya_synced"] = True
+
+        # Étape 2 — Synchronisation Grist → GitHub
+        print("🔁 Synchronisation Grist → GitHub en cours...")
+        # TODO: appel logique d’import / export ici
+        result["github_synced"] = True
+
+        result["status"] = "success"
+        print("✅ Synchronisation terminée avec succès.")
+
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+        print(f"❌ Erreur dans synchronize_all : {e}")
+
+    return result
+
 
 # Fonction utilitaire pour retrouver un élément par identifiant dans une liste de dictionnaires
 def find_item_by_id(items, item_id, field="id"):
@@ -21,6 +156,82 @@ def find_item_by_id(items, item_id, field="id"):
 
     print(f"⚠️ Aucun élément trouvé avec {field} = {item_id}")
     return None
+
+
+def create_github_issue_from_feature(project_id, github_token, feature, assignees=None, labels=None):
+    """
+    Crée une issue GitHub à partir d'une donnée 'feature' standardisée.
+
+    Args:
+        project_id (str): identifiant du projet GitHub (GraphQL node ID du ProjectV2)
+        github_token (str): jeton d'accès personnel GitHub (scope 'repo')
+        feature (dict): dictionnaire de feature contenant :
+            {
+                "id_GitHub",
+                "Nom_Feature",
+                "id_feature",
+                "Description",
+                "Etat",
+                "extra",
+                "number"
+            }
+        assignees (list, optional): liste de logins GitHub à assigner
+        labels (list, optional): liste de labels à ajouter
+    Returns:
+        dict | None: Dictionnaire contenant la réponse GitHub si succès, sinon None
+    """
+    import requests
+
+    if not feature or "Nom_Feature" not in feature:
+        print("⚠️ Donnée feature invalide ou incomplète.")
+        return None
+
+    # Etape 1 : Récupérer le nom complet du dépôt (organisation/repo) à partir de project_id via la fonction utilitaire
+    repo_full_name = get_repo_full_name_from_project_id(project_id, github_token)
+    if not repo_full_name:
+        print(f"❌ Impossible de déterminer le dépôt GitHub à partir du project_id {project_id} (via get_repo_full_name_from_project_id)")
+        return None
+    
+    title = feature.get("Nom_Feature", "Nouvelle feature")
+    # Ajout automatique de l’identifiant dans le titre pour traçabilité
+    if feature.get("id_feature"):
+        title = f"[{feature['id_feature']}]: {title}"
+        body = feature.get("Description", "")
+        etat = feature.get("Etat")
+        extra = feature.get("extra")
+
+    # Ajout d’un bloc d’infos formaté dans la description
+    body += "\n\n---\n🧩 **Méta-informations**\n"
+    body += f"- État : {etat or 'N/A'}\n"
+    if extra:
+        body += f"- Source : {extra}\n"
+
+    url = f"https://api.github.com/repos/{repo_full_name}/issues"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json"
+    }
+
+    payload = {
+        "title": title,
+        "body": body.strip(),
+    }
+    if assignees:
+        payload["assignees"] = assignees
+    if labels:
+        payload["labels"] = labels
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        print(f"✅ Issue créée : #{data.get('number')} {data.get('title')}")
+        print(f"🔗 URL : {data.get('html_url')}")
+        return data
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Erreur lors de la création de l'issue GitHub : {e}")
+        return None
+
 
 def get_github_features(projectId, github_token):
     """
@@ -334,6 +545,7 @@ def create_grist_feature(
     commentaires="Aucun commentaire",
     extra=None,
     id_epic=None,
+    id_feature=None,
     **kwargs
 ):
     """
@@ -346,28 +558,27 @@ def create_grist_feature(
         "Accept": "application/json"
     }
 
+
+
     payload = {
         "records": [
             {
-                "fields": {
-                    "uid": str(uuid.uuid4()),
-                    "timestamp": datetime.now().isoformat(),
-                    "name": name,
-                    "description": description,
-                    "state": state,
-                    "Type": type_feature,
-                    "Gains": gains,
-                    "Commentaires": commentaires,
-                    "extra": extra,
-                    "id_Epic": id_epic,
-                    **kwargs
+            "fields": {
+                #"uid": str(uuid.uuid4()),
+                "Nom_Feature": name,
+                "Description": description,
+                "Gains": gains,
+                "Commentaires": commentaires,
+                "id_feature": id_feature,
+                "id_Epic": id_epic
                 }
             }
         ]
     }
 
+
     url = f"{base_url}/api/docs/{doc_id}/tables/{table_name}/records"
-    url = url.replace("//api", "/api").replace(":/", "://")
+    url = url.replace('://', '§§').replace('//', '/').replace('§§', '://')
 
     try:
         response = requests.post(url, headers=headers, json=payload)
@@ -617,3 +828,77 @@ def compute_diff(grist_features, dest_features, rename_deleted=False, epic=None)
         print(f"  • {k} : {v}")
 
     return diff_list
+
+
+# Nouvelle fonction pour créer dans Grist les features absentes (action = 'not_present') à partir des diffs iObeya et GitHub
+def create_missing_features_in_grist(grist_conf, context):
+    """
+    Crée dans Grist les features présentes dans iObeya ou GitHub
+    mais absentes de Grist (action = 'not_present').
+    """
+    created = []
+    api_url = grist_conf.get("api_url")
+    doc_id = grist_conf.get("doc_id")
+    api_token = grist_conf.get("api_token")
+    table_name = grist_conf.get("feature_table_name", "Features")
+
+    # Fusion des diffs iObeya et GitHub
+    combined_diffs = []
+    nitem = {}
+    
+    for item in context.get("iobeya_diff", []):
+        if item.get("action") == "not_present":
+            combined_diffs.append(item["feature"])
+            nitem.clear()
+            nitem = item.copy()
+            nitem["action"] = "create"  # permet d'indiquer création également dans github
+            context.get("github_diff").append(nitem)
+
+    for item in context.get("github_diff", []):
+        if item.get("action") == "not_present":
+            combined_diffs.append(item["feature"])
+            nitem.clear()
+            nitem = item.copy()
+            nitem["action"] = "create"  # permet d'indiquer création également dans iobeya
+            context.get("iobeya_diff").append(nitem)
+
+    # NOTE : Pour se rappeller >> si synchronisation est bidirectionnelle elle doit également tenir compte des updates entre les deux systèmes iobeya et github... ( lancer une deuximère synchronisation après la création des éléments manquants ? )
+
+    print(f"🧩 {len(combined_diffs)} features à créer dans Grist (not_present).")
+
+    for feat in combined_diffs:
+        name = feat.get("Nom_Feature", "Sans titre")
+        description = feat.get("Description", "")
+        state = feat.get("Etat", "open")
+        type_feature = feat.get("Type", "Feature")
+        gains = feat.get("Gains", 0)
+        commentaires = feat.get("Commentaires", "")
+        extra = feat.get("extra")
+        id_epic = feat.get("id_Epic")
+        id_feature = feat.get("id_feature") or feat.get("id_Feature") or f"FPX-{random.randint(1000, 9999)}"    
+
+        result = create_grist_feature(
+            base_url=api_url,
+            doc_id=doc_id,
+            api_key=api_token,
+            table_name=table_name,
+            name=name,
+            description=description,
+            state=state,
+            type_feature=type_feature,
+            gains=gains,
+            commentaires=commentaires,
+            extra=extra,
+            id_epic=id_epic,
+            id_feature=id_feature,
+        )
+
+        if result:
+            created.append(result)
+            
+    ## Ici ajouter les fonction de CRUD dans iobeya et github   
+        
+            
+
+    print(f"✅ {len(created)} features créées dans Grist.")
+    return created

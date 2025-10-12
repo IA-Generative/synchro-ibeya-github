@@ -524,29 +524,55 @@
     document.getElementById('verifyBtn').onclick = runVerification;
 
     document.getElementById('syncBtn').onclick = async () => {
+      // Récupérer les valeurs demandées
+      const iobeya_board_id = document.getElementById('boardSelect').value;
+      const github_project_id = document.getElementById('githubSelect').value;
+      const rename_deleted = document.getElementById('delCheckbox').checked;
+      const pi = document.getElementById('piInput').value;
       if (!lastVerification) {
         alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
         return;
       }
+      const body = {
+        ...lastVerification,
+        iobeya_board_id,
+        github_project_id,
+        rename_deleted,
+        pi,
+        force_overwrite: false
+      };
       const res = await fetch('/sync', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ ...lastVerification, force_overwrite: false, pi: document.getElementById('piInput').value })
+        body: JSON.stringify(body)
       });
       await res.json();
       alert('Synchronisation terminée.');
     };
 
     document.getElementById('overwriteBtn').onclick = async () => {
+      // Récupérer les valeurs demandées
+      const iobeya_board_id = document.getElementById('boardSelect').value;
+      const github_project_id = document.getElementById('githubSelect').value;
+      const rename_deleted = document.getElementById('delCheckbox').checked;
+      const pi = document.getElementById('piInput').value;
       if (!lastVerification) {
         alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
         return;
       }
       if (!confirm("⚠️ Cette action écrasera la destination (iObeya + GitHub). Continuer ?")) return;
+      const body = {
+        ...lastVerification,
+        iobeya_board_id,
+        github_project_id,
+        rename_deleted,
+        pi,
+        force_overwrite: true
+      };
       const res = await fetch('/sync', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ ...lastVerification, force_overwrite: true, pi: document.getElementById('piInput').value })
+        body: JSON.stringify(body)
       });
       await res.json();
       alert('Écrasement complet effectué.');

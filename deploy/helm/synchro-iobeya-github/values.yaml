@@ -1,0 +1,58 @@
+image:
+  repository: synchro-iobeya-github
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 28080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: synchro.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Secret environment variables (ACCESS_KEY and tokens)
+secret:
+  create: true
+  name: synchro-iobeya-github-secrets
+  env:
+    ACCESS_KEY: ""
+    GITHUB_TOKEN: ""
+    IOBEYA_TOKEN: ""
+
+# Inline content of config.yaml (mounted as /app/config.yaml)
+# You can also set this with: --set-file config=./config.yaml
+config: |
+  grist:
+    api_url: "https://grist.example/api"
+    api_token: ""
+    default_doc_id: ""
+    default_table: "Features"
+    default_epic_table: "Epics"
+    default_feature_table: "Features"
+  iobeya:
+    base_url: "https://iobeya.example"
+    token: ""
+    types_card_features: []
+  github:
+    token_env_var: "{{ .Values.secret.env.GITHUB_TOKEN }}"
+    organizations: ["ia-generative"]
+  security:
+    access_keys:
+      - "{{ .Values.secret.env.ACCESS_KEY }}"

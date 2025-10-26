@@ -1,0 +1,10 @@
+Thank you for installing Synchro iObeya ↔ GitHub!
+
+1) Ensure the Service is reachable:
+   kubectl get svc -n {{ .Release.Namespace }}
+
+2) If Ingress is enabled, browse:
+   http(s)://<host>/?key=<ACCESS_KEY>
+
+3) Logs:
+   kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "synchro-iobeya-github.fullname" . }} -f

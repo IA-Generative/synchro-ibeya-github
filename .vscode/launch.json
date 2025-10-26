@@ -2,22 +2,16 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Flask app",
+            "name": "Debug Flask HTTPS app",
             "type": "python",
             "request": "launch",
-            "module": "flask",
+            "module": "webapp.app",
+            "console": "integratedTerminal",
+            "justMyCode": false,
             "env": {
-                "FLASK_APP": "webapp.app",
                 "FLASK_ENV": "development",
                 "FLASK_DEBUG": "1"
-            },
-            "args": [
-                "run",
-                "--host=localhost",
-                "--port=8080"
-            ],
-            "jinja": true,
-            "justMyCode": false
+            }
         }
     ]
 }

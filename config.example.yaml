@@ -1,3 +1,10 @@
+security:
+  access_keys:
+    - "mettre-votre-cle-dacces2-ici"
+    - "mettre-votre-cle-dacces2-ici"
+    - "mettre-votre-cle-dacces3-ici"
+
+
 # Exemple de configuration pour le MVP iObeya → GitHub Projects
 grist:
   api_url: "http://localhost:8484/"

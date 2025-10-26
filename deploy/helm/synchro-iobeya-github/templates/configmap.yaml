@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "synchro-iobeya-github.fullname" . }}
+  labels:
+    {{- include "synchro-iobeya-github.labels" . | nindent 4 }}
+data:
+  config.yaml: |-
+    {{- .Values.config | nindent 8 }}

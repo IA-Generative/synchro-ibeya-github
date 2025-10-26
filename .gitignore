@@ -207,4 +207,18 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+#exclu les fichiers de configuration sensibles
+.env
 config.yaml
+*/env.config.production
+.env.*
+# Ignore tout .env réel dans deploy/
+deploy/.env
+deploy/.env.*
+
+# Exclure les fichiers d'exemple d'environnement sauf s'ils sont anonymisés
+!.env.example
+!config.example.yaml
+
+# Certificats TLS auto-générés
+certs/

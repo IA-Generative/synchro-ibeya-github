@@ -1,3 +1,6 @@
 Flask
 requests
 pyyaml
+gunicorn>=21.2.0
+pandas
+watchdog

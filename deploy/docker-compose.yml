@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  web:
+    # --- Construction de l’image ---
+    build:
+      context: ..                # le répertoire racine du projet
+      dockerfile: deploy/Dockerfile  # Dockerfile localisé dans /deploy
+    image: synchro-iobeya-github:local
+    container_name: synchro-iobeya-github
+
+    # --- Réseau & ports d’exposition ---
+    ports:
+      - "443:443"
+      - "28080:28080"  # port HTTP interne (optionnel)
+
+    # --- Chargement automatique des variables d’environnement ---
+    env_file:
+      - env.config.production  # charge toutes les variables d’environnement
+
+    # --- Variables d’environnement explicites (avec valeurs par défaut) ---
+    environment:
+      # Sécurité & Tokens
+      ACCESS_KEY: ${ACCESS_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      IOBEYA_TOKEN: ${IOBEYA_TOKEN:-}
+
+      # --- Configuration Grist ---
+      GRIST_API_URL: ${GRIST_API_URL:-https://grist.numerique.gouv.fr/api}
+      GRIST_API_TOKEN: ${GRIST_API_TOKEN:-}
+      GRIST_DOC_ID: ${GRIST_DOC_ID:-}
+      GRIST_FEATURE_TABLE_NAME: ${GRIST_FEATURE_TABLE_NAME:-Features}
+      GRIST_EPIC_TABLE_NAME: ${GRIST_EPIC_TABLE_NAME:-Epics}
+
+      # --- Configuration iObeya ---
+      IOBEYA_BASE_URL: ${IOBEYA_BASE_URL:-https://iobeya.numerique-interieur.com}
+      IOBEYA_ROOM_ID: ${IOBEYA_ROOM_ID:-}
+      IOBEYA_TYPE_FEATURE_CARD: ${IOBEYA_TYPE_FEATURE_CARD:-Feature}
+      IOBEYA_TYPE_EPIC_CARD: ${IOBEYA_TYPE_EPIC_CARD:-Epic}
+
+      SSL_CERTFILE: /certs/fullchain.pem
+      SSL_KEYFILE: /certs/privkey.pem
+
+      # Exemple : activer Flask production si besoin
+      # FLASK_ENV: production
+
+    # --- Montage des fichiers de configuration ---
+    volumes:
+      - ../config.yaml:/app/config.yaml:ro
+      - ../certs:/certs:ro
+
+    # --- Politique de redémarrage ---
+    restart: unless-stopped
+
+    command: >
+      gunicorn --bind 0.0.0.0:443
+               --certfile /certs/fullchain.pem
+               --keyfile /certs/privkey.pem
+               --workers 3 webapp.app:app

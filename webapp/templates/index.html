@@ -50,6 +50,17 @@
       font-size: 1.3em;
       /* text-align removed for header-row flex */
     }
+    .alpha-label {
+      color: #d32f2f;
+      font-size: 0.8em;
+      margin-left: 8px;
+      font-weight: 600;
+      animation: blink 2s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
     .header-row {
       display: flex;
       justify-content: space-between;
@@ -215,7 +226,10 @@
 <body>
   <div class="container">
     <div class="header-row">
-      <h1>Synchronisation</h1>
+      <h1>
+        Synchronisation
+        <span class="alpha-label">🚧 Alpha version 🚧</span>
+      </h1>
       <div class="settings-buttons">
         <button id="saveSettingsBtn" title="Sauvegarder les préférences dans un cookie">💾</button>
         <button id="loadSettingsBtn" title="Charger les préférences enregistrées depuis le cookie">📖</button>
@@ -580,7 +594,38 @@
 </script>
 
   <script>
-    function saveSettingsToCookie() {
+    // Vérifie automatiquement si le navigateur autorise les cookies (utile dans iframe HTTPS comme Grist)
+    document.addEventListener('DOMContentLoaded', () => {
+      document.cookie = "cookie_test=1; SameSite=None; Secure; path=/";
+      setTimeout(() => {
+        const cookies = document.cookie || "";
+        const enabled = cookies.includes("cookie_test");
+        // Supprime le cookie de test
+        document.cookie = "cookie_test=; max-age=0; path=/; SameSite=None; Secure";
+        if (!enabled) {
+          const warn = document.createElement('div');
+          warn.textContent = "⚠️ Les cookies semblent désactivés ou bloqués par votre navigateur. Certaines préférences ne seront pas sauvegardées.";
+          warn.style.position = "fixed";
+          warn.style.bottom = "10px";
+          warn.style.left = "10px";
+          warn.style.background = "#b71c1c";
+          warn.style.color = "white";
+          warn.style.padding = "8px 12px";
+          warn.style.borderRadius = "6px";
+          warn.style.boxShadow = "0 2px 8px rgba(0,0,0,0.2)";
+          warn.style.fontSize = "0.9em";
+          warn.style.zIndex = "10000";
+          document.body.appendChild(warn);
+          setTimeout(() => warn.remove(), 6000);
+          console.warn("🚫 Cookies désactivés ou bloqués : vérifiez SameSite=None et Secure.");
+        } else {
+          console.log("✅ Cookies activés et fonctionnels.");
+        }
+      }, 500);
+    });
+  </script>
+  <script>
+      function saveSettingsToCookie() {
       const settings = {
         pi: document.getElementById('piInput').value,
         epic: document.getElementById('epicSelect').value,
@@ -590,7 +635,10 @@
         project: document.getElementById('githubSelect').value,
         rename_deleted: document.getElementById('delCheckbox').checked
       };
-      document.cookie = "syncSettings=" + encodeURIComponent(JSON.stringify(settings)) + "; path=/; max-age=" + (60*60*24*30);
+      document.cookie =
+        "syncSettings=" + encodeURIComponent(JSON.stringify(settings)) +
+        "; path=/; max-age=" + (60*60*24*30) +
+        "; SameSite=None; Secure";
       // Ajout d'un indicateur visuel temporaire
       const msg = document.createElement('div');
       msg.textContent = '✅ Préférences sauvegardées';
@@ -610,7 +658,7 @@
 
     // Ajout: suppression du cookie + notification
     function deleteSettingsCookie() {
-      document.cookie = "syncSettings=; path=/; max-age=0";
+      document.cookie = "syncSettings=; path=/; max-age=0; SameSite=None; Secure";
       const msg = document.createElement('div');
       msg.textContent = '🗑️ Préférences supprimées';
       msg.style.position = 'fixed';

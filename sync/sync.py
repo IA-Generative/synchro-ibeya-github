@@ -473,7 +473,7 @@ def get_grist_epics(base_url, doc_id, api_key, table_name="Epics"):
         print(f"⚠️ Erreur API Grist : {e}")
         return []
         
-def get_grist_features(base_url, doc_id, api_key, table_name="Features", filter_epic_id=None):
+def get_grist_features(base_url, doc_id, api_key, table_name="Features", filter_epic_id=None , pi=0):
     filter_by_epic=None
 
     if filter_epic_id is not None:
@@ -513,12 +513,26 @@ def get_grist_features(base_url, doc_id, api_key, table_name="Features", filter_
                 "id": rec.get("id"),
                 **rec.get("fields", {})
             }
+            #vérifie le PI si demandé
+            try:
+                pi_val = int(pi)
+            except (ValueError, TypeError):
+                pi_val = 0
 
-            if filter_by_epic is not None:
-                if (fields.get("id_Epic") == filter_by_epic):
+            # Arrêt anticipé si l'id_Epic correspond à 17
+            if str(fields.get("id_Epic", "")) == "17":
+                print(f"⏹️ Arrêt : feature liée à l'id_Epic=17 détectée -> {fields.get('Nom_Feature')}")
+                
+            # Si pi < 1, on considère que le filtre n'est pas appliqué (condition passante)
+            if pi_val < 1 or str(fields.get("PI_Num")) == str(pi_val):
+
+                if filter_epic_id is not None:
+                    str1 = str(fields.get("id_Epic"))
+                    str2 = str(filter_epic_id)
+                    if str1 == str2:
+                        records.append(fields)
+                else:
                     records.append(fields)
-            else:
-                records.append(fields)
 
         df = pd.DataFrame(records)
         print(f"✅ {len(df)} features récupérées depuis Grist (sync.py).")
@@ -546,6 +560,7 @@ def create_grist_feature(
     extra=None,
     id_epic=None,
     id_feature=None,
+    pi_num=None,
     **kwargs
 ):
     """
@@ -558,7 +573,9 @@ def create_grist_feature(
         "Accept": "application/json"
     }
 
-
+# 
+#$id2 = il faut parser et extraire le numéro de la feature
+#$id_Epic = un identifiant numérique et pas identifiatnt de type E-XX
 
     payload = {
         "records": [
@@ -567,15 +584,15 @@ def create_grist_feature(
                 #"uid": str(uuid.uuid4()),
                 "Nom_Feature": name,
                 "Description": description,
-                "Gains": gains,
+                "Hypothese_de_gain": gains,
                 "Commentaires": commentaires,
-                "id_feature": id_feature,
-                "id_Epic": id_epic
+                "id2": id_feature,
+                "id_Epic": id_epic,
+                "PI_Num": pi_num,                
                 }
             }
         ]
     }
-
 
     url = f"{base_url}/api/docs/{doc_id}/tables/{table_name}/records"
     url = url.replace('://', '§§').replace('//', '/').replace('§§', '://')
@@ -876,7 +893,45 @@ def create_missing_features_in_grist(grist_conf, context):
         extra = feat.get("extra")
         id_epic = feat.get("id_Epic")
         id_feature = feat.get("id_feature") or feat.get("id_Feature") or f"FPX-{random.randint(1000, 9999)}"    
+        id_num = (lambda v: int(v.split('-')[-1]) if '-' in v and v.split('-')[-1].isdigit() else random.randint(1000, 9999))(str(id_feature))
+        import re
+        # Extraction du numéro de PI (valeur entre les lettres 'FP' et le tiret '-')
+        match_pi = re.search(r'FP(\d+)-', str(id_feature))
+        
+        # récupère le pi_num dans le contexte de la session si disponible
+        pi_num_context = 0
+        session_data = context.get("session_data", {})
+        if session_data:
+            pi_num_context = session_data.get("pi_num", 0)
+            
+        # récupère le pi_num dans le contexte de num de la feature si disponible
 
+        if match_pi:
+            pi_num = int(match_pi.group(1))
+        else:
+            try:
+                pi_num = int(pi_num_context)# si pas de match, utilise le contexte
+            except (ValueError, TypeError):
+                pi_num = 0 # valeur par défaut si tout échoue
+                
+        print(f"🔢 PI_num déterminé : {pi_num} pour feature {id_feature}")
+        
+        # 🔍 Recherche de l'ID interne de l'Epic correspondant à l'id_Epic
+        epics_list = get_grist_epics(api_url, doc_id, api_token, "Epics")
+        matching_epic = None
+        if id_epic:
+            for epic in epics_list:
+                if str(epic.get("id_epic")) == str(id_epic):
+                    matching_epic = epic
+                    break
+
+        if matching_epic:
+            id_epic_internal = matching_epic.get("id")
+            print(f"🔗 Epic trouvé : id_epic={id_epic} → id interne={id_epic_internal}")
+        else:
+            id_epic_internal = None
+            print(f"⚠️ Aucun Epic trouvé avec id_Epic={id_epic}, la feature sera créée sans lien Epic.")
+                    
         result = create_grist_feature(
             base_url=api_url,
             doc_id=doc_id,
@@ -889,8 +944,9 @@ def create_missing_features_in_grist(grist_conf, context):
             gains=gains,
             commentaires=commentaires,
             extra=extra,
-            id_epic=id_epic,
-            id_feature=id_feature,
+            id_epic=id_epic_internal,
+            id_feature=id_num,
+            pi_num=pi_num
         )
 
         if result:

@@ -61,9 +61,11 @@ GITHUB_ORGANIZATIONS = github_conf.get("organizations", [])
 
 ##
 
-def list_epics():
+def list_epics(grist_doc_id=None):
+    # Permet de passer un doc_id personnalisé, sinon utilise la config par défaut.
+    doc_id = grist_doc_id or GRIST_DOC_ID
     try:
-        epics = get_grist_epics(GRIST_API_URL, GRIST_DOC_ID, GRIST_API_TOKEN, GRIST_EPIC_TABLE_NAME)
+        epics = get_grist_epics(GRIST_API_URL, doc_id, GRIST_API_TOKEN, GRIST_EPIC_TABLE_NAME)
         if not epics:
             app.logger.warning("⚠️ Aucune donnée reçue depuis Grist (Epics).")
             return [{"id": "error", "name": "[Erreur : aucune donnée Epics récupérée]"}]
@@ -161,13 +163,43 @@ def add_session_cookie(response):
         )
     return response
 
+# --- Utilitaire pour récupérer le nom du document Grist ---
+def get_grist_doc_name(api_url, doc_id, api_token):
+    """Retourne le nom du document Grist à partir de son ID."""
+    url = f"{api_url}/api/docs/{doc_id}"
+    headers = {
+        "Authorization": f"Bearer {api_token}",
+        "Accept": "application/json"
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("name", f"(Doc {doc_id} sans nom)")
+    except Exception as e:
+        app.logger.warning(f"⚠️ Erreur récupération nom du doc Grist ({doc_id}) : {e}")
+        return f"(Doc {doc_id} inconnu)"
+
 @app.route("/")
 def index():
-    g_list_epics = list_epics()
-    req=request 
-    return render_template("index.html", epics=g_list_epics,
-                           rooms=list_rooms(), projects=list_projects(),
-                           organizations=list_organizations())
+    # Lire doc_id depuis la query string, ou fallback sur les préférences
+    doc_id_param = request.args.get("doc_id", "").strip()
+    grist_doc_id = doc_id_param or GRIST_DOC_ID
+    app.logger.debug(f"📘 Doc Grist actif : {grist_doc_id}")
+    doc_name = get_grist_doc_name(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN)
+    grist_display_name = f"📘 Grist – {doc_name}"
+    grist_display_id = f"( Doc id : {grist_doc_id} )"
+    g_list_epics = list_epics(grist_doc_id)
+    req = request
+    return render_template(
+        "index.html",
+        epics=g_list_epics,
+        rooms=list_rooms(),
+        projects=list_projects(),
+        organizations=list_organizations(),
+        grist_display_name=grist_display_name,
+        grist_display_id=grist_display_id
+    )
 
 @app.route("/verify", methods=["GET", "POST"])
 def verify():
@@ -175,10 +207,11 @@ def verify():
     default_iobeya_board_id = None
     default_github_project_id = None
 
-    # Read parameters from JSON (POST) or query args (GET)
+    # Lire doc_id depuis la query string ou POST, ou fallback sur les préférences
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
-        grist_doc_id = data.get("grist_doc_id", GRIST_DOC_ID)
+        doc_id_param = data.get("doc_id", "").strip()
+        grist_doc_id = doc_id_param or GRIST_DOC_ID
         grist_table = data.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = data.get("iobeya_board_id", default_iobeya_board_id)
         github_project_id = data.get("github_project_id")
@@ -188,7 +221,8 @@ def verify():
         project = data.get("project")
         rename_deleted = data.get("rename_deleted")
     else:
-        grist_doc_id = request.args.get("grist_doc_id", GRIST_DOC_ID)
+        doc_id_param = request.args.get("doc_id", "").strip()
+        grist_doc_id = doc_id_param or GRIST_DOC_ID
         grist_table = request.args.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = request.args.get("iobeya_board_id", default_iobeya_board_id)
         github_project_id = request.args.get("github_project_id")
@@ -197,52 +231,50 @@ def verify():
         room = request.args.get("room")
         project = request.args.get("project")
         rename_deleted = request.args.get("rename_deleted")
+    app.logger.debug(f"📘 Doc Grist actif : {grist_doc_id}")
     app.logger.debug(f"Received params: grist_doc_id={grist_doc_id}, iobeya_board_id={iobeya_board_id}, github_project_id={github_project_id}, pi={pi}, epic={epic}, room={room}, project={project}, rename_deleted={rename_deleted}")
 
     session_id = request.cookies.get("session_id")
     session_id, session_data = session_store.get_or_create_session(session_id)
 
     # récupérer les features depuis grist
-    
     try:
-        df, last_update = get_grist_features(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, grist_table,epic)
+        df, last_update = get_grist_features(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, grist_table, epic, pi or 0)
         session_data["grist"] = df.to_dict(orient="records") if not df.empty else []
         app.logger.info(f"✅ {len(session_data['grist'])} features récupérées depuis Grist (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features Grist : {e}")
         session_data["grist"].clear()
-    
-    # récupérer les features depuis iObeya
 
+    # récupérer les features depuis iObeya
     try:
-        session_data["iobeya"] = get_iobeya_features(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN,IOBEYA_TYPES_CARD_FEATURES)
+        session_data["iobeya"] = get_iobeya_features(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN, IOBEYA_TYPES_CARD_FEATURES)
         app.logger.info(f"✅ {len(session_data['iobeya'])} features récupérées depuis iObeya (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features iobeya : {e}")
         session_data["iobeya"].clear()
-    
+
     # récupérer les features depuis GitHub
-    
     try:
         session_data["github"] = get_github_features(github_project_id, GITHUB_TOKEN_ENV_VAR)
         app.logger.info(f"✅ {len(session_data['github'])} features récupérées depuis GitHub (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features GitHub : {e}")
         session_data["github"].clear()
-        
+
     # récupérer les diffs
     session_data["iobeya_diff"].clear()
     session_data["github_diff"].clear()
 
     try:
-        ### récupère la liste des epics pour filtrer les diffs en fonction de l'epic sélectionné
-        g_list_epics = list_epics() 
+        # récupère la liste des epics pour filtrer les diffs en fonction de l'epic sélectionné
+        g_list_epics = list_epics(grist_doc_id)
         id_epic_value = None
         for e in g_list_epics:
             if int(e.get("id")) == int(epic):
                 id_epic_value = e.get("id_epic")
-                break     
-        ### Calcul des diffs iObeya et GitHub vs grist
+                break
+        # Calcul des diffs iObeya et GitHub vs grist
         session_data["iobeya_diff"] = compute_diff(session_data["grist"], session_data["iobeya"], rename_deleted, id_epic_value)
         app.logger.info(f"✅ {len(session_data['iobeya_diff'])} différences récupérées depuis iObeya (app.py).")
         session_data["github_diff"] = compute_diff(session_data["grist"], session_data["github"], rename_deleted, id_epic_value)

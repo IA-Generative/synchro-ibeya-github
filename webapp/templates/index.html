@@ -3,9 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <title>Synchronisation Grist ↔ iObeya ↔ GitHub</title>
+
   <link href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css" />
   <style>
+    #gristDocName {
+      font-size: 0.7em;
+      color: #27672e;
+      margin-top: 4px;
+      font-weight: 400;
+      display: block;
+    }
+    #gristDocId {
+      font-size: 0.6em;
+      color: #444196;
+      margin-top: 4px;
+      font-style: italic;
+      font-weight: 400;
+      display: block;
+      margin-left: 20px;
+    }
     .result-separator {
       display: flex;
       align-items: center;
@@ -229,6 +246,8 @@
       <h1>
         Synchronisation
         <span class="alpha-label">🚧 Alpha version 🚧</span>
+        <span id="gristDocName">{{ grist_display_name }}</span>
+        <span id="gristDocId">{{ grist_display_id }}</span>
       </h1>
       <div class="settings-buttons">
         <button id="saveSettingsBtn" title="Sauvegarder les préférences dans un cookie">💾</button>

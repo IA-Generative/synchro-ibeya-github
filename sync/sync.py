@@ -855,7 +855,12 @@ def create_missing_features_in_grist(grist_conf, context):
     """
     created = []
     api_url = grist_conf.get("api_url")
-    doc_id = grist_conf.get("doc_id")
+    doc_id = (
+        context.get("session_data", {}).get("grist_doc_id")
+        or context.get("grist_doc_id")
+        or grist_conf.get("doc_id")
+    )
+    print(f"📘 Doc_id actif utilisé pour la création : {doc_id}")
     api_token = grist_conf.get("api_token")
     table_name = grist_conf.get("feature_table_name", "Features")
 

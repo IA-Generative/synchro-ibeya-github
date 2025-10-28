@@ -191,6 +191,11 @@ def index():
     grist_display_id = f"( Doc id : {grist_doc_id} )"
     g_list_epics = list_epics(grist_doc_id)
     req = request
+    # Création/stockage session + grist_doc_id
+    session_id = request.cookies.get("session_id")
+    session_id, session_data = session_store.get_or_create_session(session_id)
+    session_data["grist_doc_id"] = grist_doc_id
+    session_store.set(session_id, session_data)
     return render_template(
         "index.html",
         epics=g_list_epics,
@@ -203,15 +208,25 @@ def index():
 
 @app.route("/verify", methods=["GET", "POST"])
 def verify():
+    # Vérification session_id et récupération grist_doc_id depuis la session
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        return jsonify({"error": "Session non trouvée ou invalide"}), 400
+    session_id, session_data = session_store.get_or_create_session(session_id)
+    grist_doc_id = session_data.get("grist_doc_id") or GRIST_DOC_ID
+    # ⚠️ Fallback au GRIST_DOC_ID par défaut si aucune session active n'a été trouvée
+    if grist_doc_id == GRIST_DOC_ID:
+        app.logger.warning("⚠️ Aucun doc_id actif trouvé en session. Utilisation du GRIST_DOC_ID par défaut.")
     # Defaults
     default_iobeya_board_id = None
     default_github_project_id = None
 
-    # Lire doc_id depuis la query string ou POST, ou fallback sur les préférences
+    # Lire doc_id depuis la query string ou POST, ou fallback sur la session/config
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
         doc_id_param = data.get("doc_id", "").strip()
-        grist_doc_id = doc_id_param or GRIST_DOC_ID
+        if doc_id_param:
+            grist_doc_id = doc_id_param
         grist_table = data.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = data.get("iobeya_board_id", default_iobeya_board_id)
         github_project_id = data.get("github_project_id")
@@ -222,7 +237,8 @@ def verify():
         rename_deleted = data.get("rename_deleted")
     else:
         doc_id_param = request.args.get("doc_id", "").strip()
-        grist_doc_id = doc_id_param or GRIST_DOC_ID
+        if doc_id_param:
+            grist_doc_id = doc_id_param
         grist_table = request.args.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = request.args.get("iobeya_board_id", default_iobeya_board_id)
         github_project_id = request.args.get("github_project_id")
@@ -234,8 +250,8 @@ def verify():
     app.logger.debug(f"📘 Doc Grist actif : {grist_doc_id}")
     app.logger.debug(f"Received params: grist_doc_id={grist_doc_id}, iobeya_board_id={iobeya_board_id}, github_project_id={github_project_id}, pi={pi}, epic={epic}, room={room}, project={project}, rename_deleted={rename_deleted}")
 
-    session_id = request.cookies.get("session_id")
-    session_id, session_data = session_store.get_or_create_session(session_id)
+    # session_id et session_data déjà récupérés plus haut
+    session_data["grist_doc_id"] = grist_doc_id
 
     # récupérer les features depuis grist
     try:
@@ -296,6 +312,16 @@ def verify():
 
 @app.route("/sync", methods=["POST"])
 def sync():
+    # Vérification session_id et récupération grist_doc_id depuis la session
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        return jsonify({"error": "Session non trouvée ou invalide"}), 400
+    session_id, session_data = session_store.get_or_create_session(session_id)
+    grist_doc_id = session_data.get("grist_doc_id") or GRIST_DOC_ID
+    # ⚠️ Fallback au GRIST_DOC_ID par défaut si aucune session active n'a été trouvée
+    if grist_doc_id == GRIST_DOC_ID:
+        app.logger.warning("⚠️ Aucun doc_id actif trouvé en session. Utilisation du GRIST_DOC_ID par défaut.")
+
     # Récupérer explicitement les paramètres nécessaires
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
@@ -323,7 +349,7 @@ def sync():
 
     grist_params = {
         "api_url": GRIST_API_URL,
-        "doc_id": GRIST_DOC_ID,
+        "doc_id": grist_doc_id,
         "api_token": GRIST_API_TOKEN,
         "feature_table_name": GRIST_FEATURE_TABLE_NAME
     }
@@ -339,8 +365,8 @@ def sync():
         "token_env_var": GITHUB_TOKEN_ENV_VAR
     }
 
-    session_id = request.cookies.get("session_id")
-    _, session_data = session_store.get_or_create_session(session_id)
+    # Met à jour le grist_doc_id actif dans le contexte avant synchronisation
+    session_data["grist_doc_id"] = data.get("doc_id") if request.method == "POST" and data.get("doc_id") else grist_doc_id
 
     # Update sync_context with parameters from request
     session_data["epic_id"] = epic_id

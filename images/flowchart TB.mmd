@@ -1,0 +1,67 @@
+%% Fichier corrigé pour compatibilité Mermaid (syntaxe, <br>, labels, etc.)
+flowchart TB
+
+%% ========== ZONE UTILISATEURS ==========
+subgraph ZU[Zone Utilisateurs / Frontale]
+    U[👤 Utilisateur humain<br>(navigateur web)]
+    OWUI[🧠 OpenWebUI<br>(frontend + backend)]
+end
+
+%% ========== AUTHENTIFICATION LOCALE ==========
+subgraph AUTH[Zone SSO locale]
+    KC[🔐 Keycloak local<br>Realm 'intra'<br>• gère login humain<br>• gère client_credentials service<br>• délivre tokens OIDC/JWT]
+end
+
+%% ========== ACCÈS AU CACHE S3 LOCAL ==========
+subgraph CACHE[Zone Cache S3 locale (LAN/cluster)]
+    EPUSER[🌐 Endpoint USER<br>(Reverse proxy #1)<br>• exposé aux navigateurs<br>• OIDC interactif / URL pré-signée<br>• rate limit fort<br>• pas de delete dangereux]
+    EPSVC[🔧 Endpoint SERVICE<br>(Reverse proxy #2)<br>• réseau interne only<br>• mTLS / client_credentials<br>• débit élevé<br>• pas d'accès direct depuis l'utilisateur]
+    MINIO[📦 MinIO Gateway Cache<br>Mode gateway s3<br>• cache disque local<br>• policies IAM locales<br>• sépare droits 'user' vs 'service']
+    IAMLOCAL[(📜 Policies IAM locales MinIO<br>• s3-user-role = accès restreint à /uploads/userX/*<br>• s3-service-role = accès technique étendu<br>• pas de privilèges admin)]
+end
+
+%% ========== ZONE DE PROTECTION DU STOCKAGE ==========
+subgraph PROTECT[Zone de protection distante]
+    RP[🛡 Reverse Proxy Sécurisé (mTLS+RL)<br>• mTLS obligatoire venant du cache<br>• rate limiting/burst control<br>• circuit breaker<br>• journaux sécurité]
+    FW[🚧 Firewall / ACL réseau<br>• n'autorise QUE RP à parler au stockage distant<br>• coupe toute IP non approuvée]
+end
+
+%% ========== STOCKAGE DE RÉFÉRENCE ==========
+subgraph BACKER[Zone Stockage distant (back-end 3)]
+    S3[(🗄 S3 Distant 'backer-data'<br>• cluster distribué<br>• erasure coding<br>• haute dispo)]
+    IAMB[🔒 IAM backer<br>Compte 'gateway-cache'<br>• accès UNIQUEMENT bucket backer-data<br>• pas de delete global<br>• pas d'admin cluster]
+    KMS[🔑 KMS / Vault interne<br>• clés SSE-KMS<br>• chiffrement des objets au repos]
+end
+
+%% ========== OBSERVABILITÉ ==========
+subgraph OBS[Supervision / SOC]
+    SIEM[📈 SIEM / Grafana / Loki<br>• logs EPUSER/EPSVC<br>• logs RP/FW<br>• logs MinIO<br>• audit IAM backer]
+end
+
+%% ========== LIENS PRINCIPAUX ==========
+
+U -->|"Upload fichier / download<br>(navigateur)"| EPUSER
+OWUI -->|"Requêtes techniques<br>(embeddings, logs modèles...)"| EPSVC
+
+U -->|"Login OIDC / session"| KC
+OWUI -->|"client_credentials OIDC<br>(service account)"| KC
+
+EPUSER -->|"Authorization: Bearer <token user><br>ou URL pré-signée courte durée"| MINIO
+EPSVC -->|"Authorization: Bearer <token service><br>(mTLS interne possible)"| MINIO
+
+MINIO -->|"Lecture/écriture locale si en cache<br>(policy IAM locale)"| MINIO
+
+MINIO -->|"Objet manquant / refresh TTL<br>→ Aller chercher dans le back-end"| RP
+RP -->|"Flux filtré, mTLS, rate limit"| FW
+FW -->|"Connexion autorisée uniquement<br>depuis RP (whitelist IP + port)"| S3
+S3 -->|"Données du bucket 'backer-data'"| MINIO
+
+S3 -->|"Chiffrement SSE-KMS"| KMS
+
+%% Logs
+EPUSER -->|"logs accès user"| SIEM
+EPSVC -->|"logs accès service"| SIEM
+MINIO -->|"audit interne MinIO : qui a lu/écrit quoi"| SIEM
+RP -->|"logs taux requêtes / anomalies réseau"| SIEM
+FW -->|"logs filtrage IP"| SIEM
+S3 -->|"audit IAM backer<br>(utilisation 'gateway-cache')"| SIEM

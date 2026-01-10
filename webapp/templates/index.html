@@ -161,12 +161,12 @@
       background: #115293;
     }
     #overwriteBtn {
-      background: #c62828;
+      background: #64b5f6; /* bleu clair */
       color: #fff;
       margin-right: 8px;
     }
     #overwriteBtn:hover {
-      background: #8e1c1c;
+      background: #42a5f5; /* bleu clair un peu plus foncé au survol */
     }
     #verifyBtn {
       background: #26a69a;
@@ -250,6 +250,7 @@
         <span id="gristDocId">{{ grist_display_id }}</span>
       </h1>
       <div class="settings-buttons">
+        <button id="reloadPageBtn" title="Recharger la page">🔄</button>
         <button id="saveSettingsBtn" title="Sauvegarder les préférences dans un cookie">💾</button>
         <button id="loadSettingsBtn" title="Charger les préférences enregistrées depuis le cookie">📖</button>
         <button id="deleteSettingsBtn" title="Supprimer les préférences enregistrées">🗑️</button>
@@ -304,18 +305,19 @@
       <select id="githubSelect"></select>
     </div>
 
-    <label style="font-weight: 400; margin-top: 1.3em;">
+    <label style="font-weight: 400; margin-top: 1.3em; display:none;">
       <input type="checkbox" id="delCheckbox" checked />
       Renommer les éléments supprimés avec "del_"
     </label>
     <small id="delWarning" style="display:none; color:#b37e14; font-size:0.75em; margin-left:1.8em; width:70%; display:block; text-align:left;">
-      ⚠️ Si usage de <b>Synchronisation forcée</b> les features n'existant pas dans Grist seront <b>définitivement supprimées</b> dans iObeya et/ou GitHub. <br/>En revanche, lors d’une synchronisation bidirectionnelle, elles seront importées dans Grist.
+      ⚠️ Si usage de <b>Synchronisation unidirectionnelle</b> les features n'existant pas dans Grist seront <b>définitivement supprimées</b> dans iObeya et/ou GitHub. <br/>En revanche, lors d’une synchronisation bidirectionnelle, elles seront importées dans Grist.
     </small>
 
     <div style="margin: 1.5em 0 0.5em 0;">
       <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button>
-      <button id="syncBtn" disabled title="Synchronise les données dans les deux sens (Grist ↔ iObeya ↔ GitHub)">Synchronisation bi-directionnelle</button>
-      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub (écrasement sauf si del_)">Synchronisation forcée (grist=maitre)</button>
+      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub">Synchro Grist &gt; iobeya+github</button>
+      <button id="syncBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">Synchro Grist
+        &lt; iobeya+github</button>
     </div>
 
 <pre id="results"
@@ -345,6 +347,7 @@
           const option = document.createElement('option');
           option.value = board.id;
           option.textContent = board.name || '(Sans nom)';
+          option.dataset.containerId = board.containerId || "";
           boardSelect.appendChild(option);
         }
       } catch (err) {
@@ -462,13 +465,21 @@
       document.getElementById('syncBtn').disabled = true;
       document.getElementById('overwriteBtn').disabled = true;
 
+      const boardSelect = document.getElementById('boardSelect');
+      const iobeya_board_id = boardSelect.value;
+      const iobeya_container_id =
+        boardSelect.options[boardSelect.selectedIndex].dataset.containerId;
+      const iobeya_room_id = document.getElementById('roomSelect').value;
+
       const body = {
         epic: document.getElementById('epicSelect').value,
         pi: document.getElementById('piInput').value,
         room: document.getElementById('roomSelect').value,
         project: document.getElementById('githubSelect').value,
         rename_deleted: document.getElementById('delCheckbox').checked,
-        iobeya_board_id: document.getElementById('boardSelect').value,
+        iobeya_board_id,
+        iobeya_container_id,
+        iobeya_room_id,
         github_project_id: document.getElementById('githubSelect').value
       };
       const res = await fetch('/verify', {
@@ -558,7 +569,10 @@
 
     document.getElementById('syncBtn').onclick = async () => {
       // Récupérer les valeurs demandées
-      const iobeya_board_id = document.getElementById('boardSelect').value;
+      const boardSelect = document.getElementById('boardSelect');
+      const iobeya_board_id = boardSelect.value;
+      const iobeya_room_id = document.getElementById('roomSelect').value;
+      const iobeya_container_id = boardSelect.options[boardSelect.selectedIndex].dataset.containerId;
       const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
       const pi = document.getElementById('piInput').value;
@@ -569,6 +583,8 @@
       const body = {
         ...lastVerification,
         iobeya_board_id,
+        iobeya_container_id,
+        iobeya_room_id,
         github_project_id,
         rename_deleted,
         pi,
@@ -585,7 +601,10 @@
 
     document.getElementById('overwriteBtn').onclick = async () => {
       // Récupérer les valeurs demandées
-      const iobeya_board_id = document.getElementById('boardSelect').value;
+      const boardSelect = document.getElementById('boardSelect');
+      const iobeya_board_id = boardSelect.value;
+      const iobeya_room_id = document.getElementById('roomSelect').value;
+      const iobeya_container_id = boardSelect.options[boardSelect.selectedIndex].dataset.containerId;
       const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
       const pi = document.getElementById('piInput').value;
@@ -593,10 +612,12 @@
         alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
         return;
       }
-      if (!confirm("⚠️ Cette action écrasera la destination (iObeya + GitHub). Continuer ?")) return;
+      if (!confirm("⚠️ Cette action synchronisera les features vers la destination (iObeya + GitHub). Continuer ?")) return;
       const body = {
         ...lastVerification,
         iobeya_board_id,
+        iobeya_container_id,
+        iobeya_room_id,
         github_project_id,
         rename_deleted,
         pi,
@@ -608,7 +629,7 @@
         body: JSON.stringify(body)
       });
       await res.json();
-      alert('Écrasement complet effectué.');
+      alert('Synchronisation complète effectuée.');
     };
 </script>
 
@@ -750,6 +771,7 @@
       }
     }
 
+    document.getElementById('reloadPageBtn').onclick = () => location.reload();
     document.getElementById('saveSettingsBtn').onclick = saveSettingsToCookie;
     document.getElementById('loadSettingsBtn').onclick = loadSettingsFromCookie;
     document.getElementById('deleteSettingsBtn').onclick = deleteSettingsCookie;

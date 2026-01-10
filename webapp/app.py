@@ -1,21 +1,32 @@
 import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from flask import Flask, render_template, request, jsonify, make_response
+from flask import Flask, render_template, request, jsonify
 import requests
 import yaml
-import os
 from webapp.session_store import session_store
 import uuid
 
 from sync.sync import (
-    get_grist_features,
-    get_grist_epics,
-    get_iobeya_features,
-    get_github_features,
     compute_diff,
-    synchronize_all,
+    synchronize_all
 )
 
+from sync.sync_grist import (
+    grist_get_data,
+    grist_get_doc_name,
+    grist_get_epics
+)
+from sync.sync_iobeya import (
+    iobeya_get_data,
+    iobeya_list_rooms,
+    iobeya_list_boards
+)
+
+from sync.sync_github import (
+    github_get_data,
+    github_list_projects,
+    github_list_organizations,
+)
 
 app = Flask(__name__)
 
@@ -59,96 +70,11 @@ github_conf = config.get("github", {})
 GITHUB_TOKEN_ENV_VAR = github_conf.get("token_env_var", "")
 GITHUB_ORGANIZATIONS = github_conf.get("organizations", [])
 
-##
-
-def list_epics(grist_doc_id=None):
-    # Permet de passer un doc_id personnalisé, sinon utilise la config par défaut.
-    doc_id = grist_doc_id or GRIST_DOC_ID
-    try:
-        epics = get_grist_epics(GRIST_API_URL, doc_id, GRIST_API_TOKEN, GRIST_EPIC_TABLE_NAME)
-        if not epics:
-            app.logger.warning("⚠️ Aucune donnée reçue depuis Grist (Epics).")
-            return [{"id": "error", "name": "[Erreur : aucune donnée Epics récupérée]"}]
-        app.logger.info(f"✅ {len(epics)} epics récupérés depuis Grist.")
-        return epics
-    except Exception as e:
-        app.logger.error(f"❌ Erreur lors de la récupération des Epics : {e}", exc_info=True)
-        return [{"id": "error", "name": f"[Erreur récupération Epics : {str(e)}]"}]
-
-def list_rooms():
-    """
-    Récupère la liste des rooms iObeya via l'API REST.
-    Retourne une liste d'objets {id, name}.
-    """
-    iobeya_conf = config.get("iobeya", {})
-    base_url = iobeya_conf.get("base_url")
-    token = iobeya_conf.get("token")
-    if not base_url or not token:
-        app.logger.warning("⚠️ Configuration iObeya incomplète.")
-        return [{"id": "none", "name": "[Erreur : configuration iObeya manquante]"}]
-    
-    url = f"{base_url}/s/j/rooms"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        rooms = [
-            {"id": r.get("id") or r.get("roomId"), "name": r.get("name") or r.get("title")}
-            for r in data if (r.get("id") or r.get("roomId")) and (r.get("name") or r.get("title"))
-        ]
-        app.logger.info(f"✅ {len(rooms)} rooms récupérées depuis iObeya.")
-        return rooms
-    except requests.RequestException as e:
-        app.logger.error(f"⚠️ Erreur API iObeya (rooms) : {e}", exc_info=True)
-        return [{"id": "error", "name": f"[Erreur connexion iObeya : {str(e)}]"}]
-
-def list_boards(room_id):
-    """
-    Récupère la liste des boards pour une room iObeya via l'API REST.
-    Retourne une liste d'objets {id, name}.
-    """
-    iobeya_conf = config.get("iobeya", {})
-    base_url = iobeya_conf.get("base_url")
-    token = iobeya_conf.get("token")
-    if not base_url or not token:
-        app.logger.warning("⚠️ Configuration iObeya incomplète.")
-        return [{"id": "none", "name": "[Erreur : configuration iObeya manquante]"}]
-    
-    url = f"{base_url}/s/j/rooms/{room_id}/details"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        boards = [
-            {"id": b.get("id"), "name": b.get("name")}
-            for b in data if b.get("@class") == "com.iobeya.dto.BoardDTO" and b.get("id") and b.get("name")
-        ]
-        app.logger.info(f"✅ {len(boards)} boards récupérés depuis iObeya pour la room {room_id}.")
-        return boards
-    except requests.RequestException as e:
-        app.logger.error(f"⚠️ Erreur API iObeya (boards) : {e}", exc_info=True)
-        return [{"id": "error", "name": f"[Erreur connexion iObeya : {str(e)}]"}]
-
-
-
-def list_organizations():
-    github_conf = config.get("github", {})
-    organizations = github_conf.get("organizations", [])
-    org_list = []
-    for org in organizations:
-        org_list.append({"id": org, "name": org})
-    return org_list
-
-def list_projects(): return ["GitHub Project X", "GitHub Project Y"]
-
 @app.before_request
 def ensure_session():
     """Assure qu’un identifiant de session est présent sans interrompre le flux de requête."""
     if not request.cookies.get("session_id"):
         request.new_session_id = str(uuid.uuid4())
-
 
 @app.after_request
 def add_session_cookie(response):
@@ -163,33 +89,16 @@ def add_session_cookie(response):
         )
     return response
 
-# --- Utilitaire pour récupérer le nom du document Grist ---
-def get_grist_doc_name(api_url, doc_id, api_token):
-    """Retourne le nom du document Grist à partir de son ID."""
-    url = f"{api_url}/api/docs/{doc_id}"
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Accept": "application/json"
-    }
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("name", f"(Doc {doc_id} sans nom)")
-    except Exception as e:
-        app.logger.warning(f"⚠️ Erreur récupération nom du doc Grist ({doc_id}) : {e}")
-        return f"(Doc {doc_id} inconnu)"
-
 @app.route("/")
 def index():
     # Lire doc_id depuis la query string, ou fallback sur les préférences
     doc_id_param = request.args.get("doc_id", "").strip()
     grist_doc_id = doc_id_param or GRIST_DOC_ID
     app.logger.debug(f"📘 Doc Grist actif : {grist_doc_id}")
-    doc_name = get_grist_doc_name(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN)
+    doc_name = grist_get_doc_name(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN)
     grist_display_name = f"📘 Grist – {doc_name}"
     grist_display_id = f"( Doc id : {grist_doc_id} )"
-    g_list_epics = list_epics(grist_doc_id)
+    g_list_epics = grist_get_epics(grist_doc_id)
     req = request
     # Création/stockage session + grist_doc_id
     session_id = request.cookies.get("session_id")
@@ -199,9 +108,9 @@ def index():
     return render_template(
         "index.html",
         epics=g_list_epics,
-        rooms=list_rooms(),
-        projects=list_projects(),
-        organizations=list_organizations(),
+        rooms=iobeya_list_rooms(),
+        projects=github_list_projects(),
+        organizations=github_list_organizations(),
         grist_display_name=grist_display_name,
         grist_display_id=grist_display_id
     )
@@ -229,6 +138,8 @@ def verify():
             grist_doc_id = doc_id_param
         grist_table = data.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = data.get("iobeya_board_id", default_iobeya_board_id)
+        iobeya_container_id = data.get("iobeya_container_id", None)
+        iobeya_room_id = data.get("iobeya_room_id", None)
         github_project_id = data.get("github_project_id")
         pi = data.get("pi")
         epic = data.get("epic")
@@ -241,6 +152,8 @@ def verify():
             grist_doc_id = doc_id_param
         grist_table = request.args.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = request.args.get("iobeya_board_id", default_iobeya_board_id)
+        iobeya_container_id = request.args.get("iobeya_container_id", None)
+        iobeya_room_id = request.args.get("iobeya_room_id", None)  
         github_project_id = request.args.get("github_project_id")
         pi = request.args.get("pi")
         epic = request.args.get("epic")
@@ -255,7 +168,7 @@ def verify():
 
     # récupérer les features depuis grist
     try:
-        df, last_update = get_grist_features(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, grist_table, epic, pi or 0)
+        df, last_update = grist_get_data(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, grist_table, epic, pi or 0)
         session_data["grist"] = df.to_dict(orient="records") if not df.empty else []
         app.logger.info(f"✅ {len(session_data['grist'])} features récupérées depuis Grist (app.py).")
     except Exception as e:
@@ -264,7 +177,7 @@ def verify():
 
     # récupérer les features depuis iObeya
     try:
-        session_data["iobeya"] = get_iobeya_features(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN, IOBEYA_TYPES_CARD_FEATURES)
+        session_data["iobeya"] = iobeya_get_data(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN, IOBEYA_TYPES_CARD_FEATURES)
         app.logger.info(f"✅ {len(session_data['iobeya'])} features récupérées depuis iObeya (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features iobeya : {e}")
@@ -272,7 +185,7 @@ def verify():
 
     # récupérer les features depuis GitHub
     try:
-        session_data["github"] = get_github_features(github_project_id, GITHUB_TOKEN_ENV_VAR)
+        session_data["github"] = github_get_data(github_project_id, GITHUB_TOKEN_ENV_VAR)
         app.logger.info(f"✅ {len(session_data['github'])} features récupérées depuis GitHub (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features GitHub : {e}")
@@ -284,7 +197,7 @@ def verify():
 
     try:
         # récupère la liste des epics pour filtrer les diffs en fonction de l'epic sélectionné
-        g_list_epics = list_epics(grist_doc_id)
+        g_list_epics = grist_get_epics(grist_doc_id)
         id_epic_value = None
         for e in g_list_epics:
             if int(e.get("id")) == int(epic):
@@ -326,6 +239,8 @@ def sync():
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
         iobeya_board_id = data.get("iobeya_board_id")
+        iobeya_container_id = data.get("iobeya_container_id")
+        iobeya_room_id = data.get("iobeya_room_id")
         github_project_id = data.get("github_project_id")
         epic_id = data.get("epic_id")
         rename_deleted = data.get("rename_deleted")
@@ -333,6 +248,8 @@ def sync():
         pi = data.get("pi")
     else:
         iobeya_board_id = request.args.get("iobeya_board_id")
+        iobeya_container_id = request.args.get("iobeya_container_id")
+        iobeya_room_id = request.args.get("iobeya_room_id")
         github_project_id = request.args.get("github_project_id")
         epic_id = request.args.get("epic_id")
         rename_deleted = request.args.get("rename_deleted")
@@ -357,6 +274,8 @@ def sync():
     iobeya_params = {
         "api_url": IOBEYA_API_URL,
         "board_id": iobeya_board_id,
+        "container_id": iobeya_container_id,
+        "room_id": iobeya_room_id,
         "api_token": IOBEYA_API_TOKEN
     }
 
@@ -465,7 +384,7 @@ def iobeya_boards():
     room_id = request.args.get("room_id")
     if not room_id:
         return jsonify({"error": "Paramètre 'room_id' manquant"}), 400
-    boards = list_boards(room_id)
+    boards = iobeya_list_boards(room_id)
     return jsonify(boards)
 
 # --- Endpoint de supervision ---

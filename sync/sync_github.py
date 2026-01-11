@@ -1,40 +1,118 @@
-import json
-import os, sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-import yaml
+## Import des modules nécessaires
 
-from sync.sync_utils import extract_feature_id_and_clean
+import pandas as pd
+import random
+import requests
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))) ##include the parent directory for module imports
+import yaml
+from datetime import datetime, timezone
+import logging
+import json
+
+# --- Import des fonctions utilitaires ---
+from sync.sync_utils import extract_id_and_clean_for_kind
 
 # --- Activation et configuration des logs ---
-import logging
-
-# --- Configuration des logs ---
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
-app = logging.getLogger("sync_github")
-app.setLevel(logging.DEBUG)
+logger = logging.getLogger("sync_github")
 
-
-
-# Load configuration from config.yaml or config.example.yaml
+# Chargement de la configuration depuis config.yaml ou config.example.yaml
 config_path = "config.yaml" if os.path.exists("config.yaml") else "config.example.yaml"
-
 with open(config_path, "r") as f:
     config = yaml.safe_load(f)
 
-def github_list_organizations():
-    github_conf = config.get("github", {})
-    organizations = github_conf.get("organizations", [])
+
+########### 
+###########  Methodes pour gérer les interactions avec Github  ###########
+###########
+
+def github_get_organizations(organizations):
     org_list = []
     for org in organizations:
         org_list.append({"id": org, "name": org})
     return org_list
 
-def github_list_projects(): return ["GitHub Project X", "GitHub Project Y"]
+# récupération de la liste des projets GitHub (Projects V2) via GraphQL
 
-def github_get_data(projectId, github_token):
+def github_get_projects(github_token,org_name): 
+    
+    if not github_token or not org_name:
+        logger.error("❌ Token GitHub manquant ou non défini dans l'environnement")
+        return []    
+    
+    # --- Requête GraphQL pour les ProjectsV2 ---
+    graphql_query = {
+        "query": f"""
+        query {{
+          organization(login: "{org_name}") {{
+            projectsV2(first: 20) {{
+              nodes {{
+                id
+                title
+                shortDescription
+                number
+              }}
+            }}
+          }}
+        }}
+        """
+    }
+
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json"
+    }
+
+    try:
+        response = requests.post(
+            "https://api.github.com/graphql",
+            headers=headers,
+            json=graphql_query,
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # Extraire les projets
+        org_data = data.get("data", {}).get("organization")
+        
+        if not org_data:
+            logger.warning(f"⚠️ Aucune organisation trouvée : {org_name}")
+            return []
+
+        projects = org_data.get("projectsV2", {}).get("nodes", [])
+        
+        project_list = [
+            {
+                "id": p.get("id"),
+                "name": p.get("title"),
+                "description": p.get("shortDescription"),
+                "number": p.get("number")
+            }
+            for p in projects
+        ]
+
+        # Tri alpha sur le nom du projet (insensible à la casse)
+        project_list_sorted = sorted(
+            project_list,
+            key=lambda p: ((p.get("name") or "").strip().lower(), (p.get("id") or ""))
+        )
+
+        return project_list_sorted
+
+    except requests.RequestException as e:  
+        logger.error(f"❌ Erreur API GitHub : {e}")
+        return []
+
+###
+### Crud des données des projets GitHub Issues via REST API v3
+###
+
+def github_get_project_objects(projectId, github_token):
     """
     Version compatible GitHub API v4 (GraphQL) fin 2024 / 2025.
     Récupère correctement les titres et descriptions des items Projects V2.
@@ -43,9 +121,10 @@ def github_get_data(projectId, github_token):
     import requests, re
 
     if not projectId or not github_token:
-        print("⚠️ Paramètres GitHub manquants (projectId ou token).")
+        logger.warning("⚠️ Paramètres GitHub manquants (projectId ou token).")
         return []
-    print(f"🔗 Project ID utilisé pour la requête GraphQL : {projectId}")
+    logger.info(f"🔗 Project ID utilisé pour la requête GraphQL : {projectId}")
+    
     url = "https://api.github.com/graphql"
     headers = {
         "Authorization": f"Bearer {github_token}",
@@ -143,19 +222,13 @@ def github_get_data(projectId, github_token):
             print("⚠️ Erreurs GraphQL :", data["errors"])
             return []
 
-        print("🧩 GraphQL raw response keys:", list(data.keys()))
-        project_node = data.get("data", {}).get("node", {})
-        print("📦 Project node keys:", list(project_node.keys()))
-        print("📄 Sample raw JSON (truncated):")
-        print(json.dumps(data, indent=2)[:1000])  # print the first 1000 chars to avoid overload
-
         nodes = (
             data.get("data", {})
             .get("node", {})
             .get("items", {})
             .get("nodes", [])
         )
-        features = []
+        objects = []
 
         for node in nodes:
             content = node.get("content") or {}
@@ -185,32 +258,33 @@ def github_get_data(projectId, github_token):
                         title = fv.get("value")
                     if field and field.lower() in ("description", "body", "texte"):
                         body = body or fv.get("value")
+            
+            # Extraction de Nom_Feature et id_feature depuis le titre (et si issue idem pour body)      
+            cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(title, kind=None)
 
-            cleaned_name, pi_number, item_id = extract_feature_id_and_clean(title or "")
-            id_feature = item_id
+            if detected_kind == "Issues" or detected_kind == "Features":
+                objects.append({
+                    "type": detected_kind,
+                    "id_GitHub": node.get("id"),
+                    "Nom_Feature": cleaned_text or "(Sans titre)",
+                    **({"Nom_Feature": cleaned_text} if detected_kind == "Features" else {}),
+                    **({"Description": body} if detected_kind == "Features" else {}),
+                    **({"Description": cleaned_text} if detected_kind == "Issues" else {}),
+                    "id_Num": item_number,
+                    "pi_num": pi_number,
+                    "Etat": state,
+                    "Commentaires": url_issue,
+                    "timestamp": updated
+                })
 
-            features.append({
-                "id_GitHub": node.get("id"),
-                "Nom_Feature": cleaned_name or "(Sans titre)",
-                "id_feature": id_feature,
-                "pi_num": pi_number,
-                "Description": (body or "").strip(),
-                "Etat": state,
-                "extra": url_issue,
-                "number": number,
-                "timestamp": updated,
-                "type_contenu": typename
-            })
-
-        print(f"✅ {len(features)} items récupérés depuis GitHub.")
-        return features
+        print(f"✅ {len(objects)} items récupérés depuis GitHub.")
+        return objects
 
     except requests.RequestException as e:
         print(f"❌ Erreur API GitHub : {e}")
         return []
 
-
-def create_github_issue_from_feature(project_id, github_token, feature, assignees=None, labels=None):
+def github_create_issue(project_id, github_token, feature, assignees=None, labels=None):
     """
     Crée une issue GitHub à partir d'une donnée 'feature' standardisée.
 
@@ -239,9 +313,9 @@ def create_github_issue_from_feature(project_id, github_token, feature, assignee
         return None
 
     # Etape 1 : Récupérer le nom complet du dépôt (organisation/repo) à partir de project_id via la fonction utilitaire
-    repo_full_name = get_repo_full_name_from_project_id(project_id, github_token)
+    repo_full_name = github_get_repo_full_name(project_id, github_token)
     if not repo_full_name:
-        print(f"❌ Impossible de déterminer le dépôt GitHub à partir du project_id {project_id} (via get_repo_full_name_from_project_id)")
+        print(f"❌ Impossible de déterminer le dépôt GitHub à partir du project_id {project_id} (via get_repo_full_name)")
         return None
     
     title = feature.get("Nom_Feature", "Nouvelle feature")
@@ -284,8 +358,14 @@ def create_github_issue_from_feature(project_id, github_token, feature, assignee
         print(f"❌ Erreur lors de la création de l'issue GitHub : {e}")
         return None
 
-# Nouvelle fonction utilitaire pour récupérer le nom complet du repo à partir du project_id GitHub
-def get_repo_full_name_from_project_id(project_id, github_token):
+
+#####
+##### Fonctions utilitaires internes
+#####
+
+
+# utilitaire pour récupérer le nom complet du repo à partir du project_id GitHub
+def github_get_repo_full_name(project_id, github_token):
     """
     Récupère le nom complet du dépôt (organisation/repo) associé à un project_id GitHub (ProjectV2).
     Retourne le nom complet du dépôt (str) ou None si non trouvé/erreur.
@@ -341,6 +421,7 @@ def get_repo_full_name_from_project_id(project_id, github_token):
         return repo_full_name
     except requests.RequestException as e:
         print(f"❌ Erreur lors de la récupération du dépôt GitHub pour le project_id {project_id} : {e}")
-        return None
+        return None    
     
-    
+
+

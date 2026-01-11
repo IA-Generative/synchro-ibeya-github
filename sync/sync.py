@@ -1,10 +1,10 @@
 from datetime import datetime
 
 from sync.sync_grist import (
-    grist_create_missing_features
+    grist_create_epic_objects
 )
 from sync.sync_iobeya import (
-    iobeya_create_missing_cards
+    iobeya_board_create_objects
 )
 
 
@@ -61,12 +61,12 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
         # Étape 0 — Si force_overwrite est false on commence par créer les features manquantes dans grist
         if not context.get("force_overwrite", False):
             print("🔁 Création des features manquantes dans Grist...")
-            result["grist_synced"] = grist_create_missing_features(grist_conf, context)
+            result["grist_synced"] = grist_create_epic_objects(grist_conf, context)
             
         # Étape 1 — Synchronisation Grist → iObeya
         if context.get("force_overwrite", False):
             print("🔁 Synchronisation Grist → iObeya en cours...")
-            result["iobeya_synced"] = iobeya_create_missing_cards(iobeya_conf, context)
+            result["iobeya_synced"] = iobeya_board_create_objects(iobeya_conf, context)
 
         # Étape 2 — Synchronisation Grist → GitHub
         print("🔁 Synchronisation Grist → GitHub en cours...")

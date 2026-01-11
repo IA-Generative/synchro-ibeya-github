@@ -1,39 +1,48 @@
-import json
+## Import des modules nécessaires
+
 import pandas as pd
+import random
 import requests
 import os, sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))) ##include the parent directory for module imports
 import yaml
-from datetime import datetime   
-from sync.sync_utils import extract_feature_id_and_clean
+from datetime import datetime, timezone
+import logging
+import json
+
+# --- Import des fonctions utilitaires ---
+
+from sync.sync_utils import (
+    extract_feature_id_and_clean,
+    extract_id_and_clean_for_kind,
+    extract_objective_id_and_clean
+)
 
 # --- Activation et configuration des logs ---
-import logging
-
-# --- Configuration des logs ---
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
-app = logging.getLogger("sync_iobeya")
-app.setLevel(logging.DEBUG)
+logger = logging.getLogger("sync_iobeya")
+logger.setLevel(logging.DEBUG)
 
-# Load configuration from config.yaml or config.example.yaml
+# Chargement de la configuration depuis config.yaml ou config.example.yaml
 config_path = "config.yaml" if os.path.exists("config.yaml") else "config.example.yaml"
-
 with open(config_path, "r") as f:
     config = yaml.safe_load(f)
 
-def iobeya_list_rooms():
+###########    
+###########  Methodes pour gérer les interactions avec iObeya  ###########
+###########
+
+def iobeya_get_rooms(base_url, token):
     """
     Récupère la liste des rooms iObeya via l'API REST.
     Retourne une liste d'objets {id, name}.
     """
-    iobeya_conf = config.get("iobeya", {})
-    base_url = iobeya_conf.get("base_url")
-    token = iobeya_conf.get("token")
+
     if not base_url or not token:
-        app.logger.warning("⚠️ Configuration iObeya incomplète.")
+        logger.warning("⚠️ Configuration iObeya incomplète.")
         return [{"id": "none", "name": "[Erreur : configuration iObeya manquante]"}]
     
     url = f"{base_url}/s/j/rooms"
@@ -46,13 +55,13 @@ def iobeya_list_rooms():
             {"id": r.get("id") or r.get("roomId"), "name": r.get("name") or r.get("title")}
             for r in data if (r.get("id") or r.get("roomId")) and (r.get("name") or r.get("title"))
         ]
-        app.logger.info(f"✅ {len(rooms)} rooms récupérées depuis iObeya.")
+        logger.info(f"✅ {len(rooms)} rooms récupérées depuis iObeya.")
         return rooms
     except requests.RequestException as e:
-        app.logger.error(f"⚠️ Erreur API iObeya (rooms) : {e}", exc_info=True)
+        logger.error(f"⚠️ Erreur API iObeya (rooms) : {e}", exc_info=True)
         return [{"id": "error", "name": f"[Erreur connexion iObeya : {str(e)}]"}]
 
-def iobeya_list_boards(room_id):
+def iobeya_get_boards(room_id):
     """
     Récupère la liste des boards pour une room iObeya via l'API REST.
     Retourne une liste d'objets {id, name}.
@@ -61,7 +70,7 @@ def iobeya_list_boards(room_id):
     base_url = iobeya_conf.get("base_url")
     token = iobeya_conf.get("token")
     if not base_url or not token:
-        app.logger.warning("⚠️ Configuration iObeya incomplète.")
+        logger.warning("⚠️ Configuration iObeya incomplète.")
         return [{"id": "none", "name": "[Erreur : configuration iObeya manquante]"}]
     
     url = f"{base_url}/s/j/rooms/{room_id}/details"
@@ -75,30 +84,44 @@ def iobeya_list_boards(room_id):
         ## note n: les boards sont dans data en tant que liste d'objets divers
         ## on récupère uniquement ceux de type BoardDTO avec id et name valides
         ## ainsi que l'id du container parent si disponible ( nécessaire pour créer des cartes )
-        boards = [
-            {
-                "id": b.get("id"),
-                "name": b.get("name"),
-                "containerId": (
-                    b.get("container", {}).get("id")
-                    if isinstance(b.get("container"), dict)
-                    else None
-                )
-            }
-            for b in data
-            if b.get("@class") == "com.iobeya.dto.BoardDTO"
-            and b.get("id")
-            and b.get("name")
-        ]
         
-        app.logger.info(f"✅ {len(boards)} boards récupérés depuis iObeya pour la room {room_id}.")
+        boards = [];
         
-        return boards
+        for b in data :
+            
+            class_object = b.get("@class")
+                                    
+            if class_object == "com.iobeya.dto.BoardDTO" \
+            and b.get("id") and b.get("name") and b.get("isModel") == False : # filtre les boards modèles
+
+                id = b.get("id")
+                name = b.get("name")
+
+                board =  {
+                    "id": id,
+                    "name": name,
+                    "containerId": (
+                        b.get("container", {}).get("id")
+                        if isinstance(b.get("container"), dict)
+                        else None
+                    )
+                 }
+                boards.append(board)
+                    
+        logger.info(f"✅ {len(boards)} boards récupérés depuis iObeya pour la room {room_id}.")
+        
+        # Tri alpha sur le nom du board (insensible à la casse)
+        boards_sorted = sorted(
+            boards,
+            key=lambda b: ((b.get("name") or "").strip().lower(), (b.get("id") or ""))
+        )
+
+        return boards_sorted
     except requests.RequestException as e:
-        app.logger.error(f"⚠️ Erreur API iObeya (boards) : {e}", exc_info=True)
+        logger.error(f"⚠️ Erreur API iObeya (boards) : {e}", exc_info=True)
         return [{"id": "error", "name": f"[Erreur connexion iObeya : {str(e)}]"}]
 
-def iobeya_get_data(base_url, board_id, api_key, type_features_card_list=None):
+def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_list=None):
     """
     Récupère la liste des cartes/features depuis l'API iObeya pour un board donné.
     Retourne un DataFrame pandas avec les colonnes alignées sur Grist.
@@ -108,52 +131,135 @@ def iobeya_get_data(base_url, board_id, api_key, type_features_card_list=None):
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json"
     }
-    url = f"{base_url}/s/j/boards/{board_id}/details"
 
     try:
+        url = f"{base_url}/s/j/boards/{board_id}/details"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
+        
+        
+                # --- Debug: break early on a specific object id (useful to isolate problematic payloads)
+        BREAK_ON_OBJECT_ID = "a946ce26-86a4-4dd8-bf94-72a774f798f2"
 
         # Filtrage des cartes selon le type spécifié
-        filtered_cards , filtered_objectives= []
-        
+        filtered_cards = []
+        objects = []
+                
         for item in data:
             item_class = item.get("@class")
-            if   item_class == "com.iobeya.dto.BoardCardDTO":
-                        filtered_cards.append(item)
-            if   item_class == "class com.iobeya.entity.Freetext":      
-                        filtered_objectives.append(item)
+
+            # 🔎 Break requested: stop processing as soon as we hit this object id
+            if item.get("id") == BREAK_ON_OBJECT_ID:
+                logger.debug(f"🛑 Break: object id {BREAK_ON_OBJECT_ID} encountered, item @class = {item_class}.")
+               
+            # - si carte de type objective (BoardFreetextDTO) on determine si c’est un objectif (commité ou non)
+            
+            if   item_class == "com.iobeya.dto.BoardFreetextDTO":      
+                content_label = item.get("contentLabel","")
+                
+                # on regarde le contenu du titre pour déterminer s’il s’agit d’un objectif (tobj ou utobj)
+                cleaned_text, pi_number, item_number, commitment = extract_objective_id_and_clean(content_label)
+                
+                if commitment is not None:
+                    
+                    # Attention il faut extraire ligne par ligne car on peut avoir plusieurs objectifs dans une même entitée
+                    lignes= content_label.splitlines()
+                    
+                    for ligne in lignes:
+                        cleaned_text, pi_number, item_number, commitment = extract_objective_id_and_clean(ligne)
+                
+                        objectives = {
+                                "type": "Objectives",
+                                "uid": item.get("id"),
+                                "Description": cleaned_text,
+                                "timestamp": item.get("modificationDate"),
+                                "id_Num": item_number,
+                                "Commited": "committed" if commitment == "committed" else "uncommitted",
+                                "pi_num": pi_number,
+                            }
+                        objects.append(objectives)
                         
-        features = []
-        featuretypeflag = False
+                        
+            if  item_class == "com.iobeya.dto.BoardNoteDTO": # pour dépendances ou risques
+                l_props= item.get("props", {})
+                
+                if l_props and isinstance(l_props, dict):
+                    content_label = l_props.get("content","")
+                    cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(content_label, kind=None)
+                else :
+                    logger.warning(f"❌ card d'object inattendu (props manquants)")
+    
+                if detected_kind == "Features":
+                    feature = {
+                        "type": detected_kind,
+                        "uid": item.get("id"),
+                        "Nom_Feature": cleaned_text,
+                        "Description": l_props.get("description"),
+                        "timestamp": item.get("modificationDate"),
+                        "id_Num": item_number,
+                        "pi_num": pi_number,
+                    }    
+                    objects.append(feature)
+            
+                if detected_kind == "Dependances":
+                    dependance = {
+                        "type": detected_kind,
+                        "uid": item.get("id"),
+                        "Libelle": cleaned_text,
+                        "Description": cleaned_text,
+                        "timestamp": item.get("modificationDate"),
+                        "id_Num": item_number,
+                        "pi_num": pi_number,
+                    }    
+                    objects.append(dependance)
+                
+                if detected_kind == "Risques":
+                    risque = {
+                        "type": detected_kind,
+                        "uid": item.get("id"),
+                        "Libelle": cleaned_text,
+                        "Impact": cleaned_text,
+                        "timestamp": item.get("modificationDate"),
+                        "id_Num": item_number,
+                        "pi_num": pi_number,
+                    }    
+                    objects.append(risque)
+                                                              
+                        
+            # - si carte de type BoardCardDTO on creer un array de cartes à traiter après
+            if   item_class == "com.iobeya.dto.BoardCardDTO":
+                filtered_cards.append(item)
+        
+        ## Parcours des cartes filtrées pour extraire les informations pertinentes
         
         for l_card in filtered_cards:
-            # todo use "props
+            
+            featuretypeflag = False
+            # Todo use "props" pour determiner automatiquement le type de card ?
+            # pour l'instant si card feature > traitement particulier sinon on regarde juste le contenu du titre
+            
             l_entity_type = l_card.get("entityType", "")
             appendchecklist = ""
  
             # Log complet uniquement pour les FeatureCards
-            if l_entity_type == "FeatureCard":
-            #    try:
-            #        print("🟦 FeatureCard détectée :", json.dumps(l_card, indent=2, ensure_ascii=False))
-            #    except Exception as e:
-            #        print(f"⚠️ Impossible de logger la FeatureCard : {e}")
-            
+            if l_entity_type == "FeatureCard":           
                 for type_feature in type_features_card_list:
                     if l_entity_type == type_feature:
                         featuretypeflag = True
                     break
                 
-            if featuretypeflag :
-                l_props= l_card.get("props", {})
+            l_props= l_card.get("props", {})
+
+            if featuretypeflag == "FeatureCard" and l_props and isinstance(l_props, dict):
                 
                 clean_title, pi_number, item_id = extract_feature_id_and_clean(l_props.get("title"))
-                if_feature = item_id
 
                 # si carte de type FeatureCard, récupére la liste des checklists filtrée sur les tâches non terminées
-                if l_entity_type == "FeatureCard":
+                # on sait par défaut que sont des types features et que les hypothèses sont dans la checklist de type "hypothesis"
+                if clean_title:
                     lchecklist = l_card.get("checklist",[])
+                    
                     for lchcklst in lchecklist:
                         kind = lchcklst.get("kind","")
                         if kind == "hypothesis":   
@@ -164,35 +270,92 @@ def iobeya_get_data(base_url, board_id, api_key, type_features_card_list=None):
                                 appendchecklist += label
                     
                     feature = {
+                        "type": "Features",
                         "uid": l_card.get("id"),
                         "Nom_Feature": clean_title,
                         "Description": appendchecklist,
                         "timestamp": l_card.get("modificationDate"),
-                        "id_feature": if_feature,
+                        "id_Num": item_id,
                         "pi_num": pi_number,
                     }
-                else :
-                    feature = {
-                        "uid": l_card.get("id"),
-                        "Nom_Feature": clean_title,
-                        "Description": l_props.get("description"),
-                        "timestamp": l_card.get("modificationDate"),
-                        "id_feature": if_feature,
-                        "pi_num": pi_number,
-                    }    
                     
-                features.append(feature)
+            else : # si carte d’un autre type que FeatureCard
 
-        #df = pd.DataFrame(features)
-        print(f"✅ {len(features)} features récupérées depuis iObeya.")
-        return features #df
+                    # on regarde le contenu du titre pour extraire le type et les données
+                    if l_props and isinstance(l_props, dict):
+                        cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(l_props.get("title"), kind=None)
+                    else :
+                        logger.warning(f"❌ card de format inattendu (props manquants)")
+    
+                    if detected_kind == "Features":
+                        feature = {
+                            "type": detected_kind,
+                            "uid": l_card.get("id"),
+                            "Nom_Feature": cleaned_text,
+                            "Description": l_props.get("description"),
+                            "timestamp": l_card.get("modificationDate"),
+                            "id_Num": item_number,
+                            "pi_num": pi_number,
+                        }    
+                        objects.append(feature)
+                
+                    if detected_kind == "Dependances":
+                        dependance = {
+                            "type": detected_kind,
+                            "uid": l_card.get("id"),
+                            "Libelle": cleaned_text,
+                            "Description": cleaned_text,
+                            "timestamp": l_card.get("modificationDate"),
+                            "id_Num": item_number,
+                            "pi_num": pi_number,
+                        }    
+                        objects.append(dependance)
+                    
+                    if detected_kind == "Risques":
+                        risque = {
+                            "type": detected_kind,
+                            "uid": l_card.get("id"),
+                            "Libelle": cleaned_text,
+                            "Impact": cleaned_text,
+                            "timestamp": l_card.get("modificationDate"),
+                            "id_Num": item_number,
+                            "pi_num": pi_number,
+                        }    
+                        objects.append(risque)
+                        
+                    if detected_kind == "Issues":
+                        issue = {
+                            "type": detected_kind,
+                            "uid": l_card.get("id"),
+                            "Titre_Issue": cleaned_text,
+                            "Description": l_props.get("description"),
+                            "timestamp": l_card.get("modificationDate"),
+                            "id_Num": item_number,
+                            "pi_num": pi_number
+                        }    
+                        objects.append(issue)
+                        
+                    if detected_kind == "committed" or detected_kind == "uncommitted":
+                        objective = {
+                            "type": "Objectives",
+                            "uid": l_card.get("id"),
+                            "Description": cleaned_text,
+                            "Commited": "committed" if detected_kind == "committed" else "uncommitted",
+                            "timestamp": l_card.get("modificationDate"),
+                            "id_Num": item_number,
+                            "pi_num": pi_number,
+                        }    
+                        objects.append(objective)
+                           
+        returnObject = pd.DataFrame(objects)
+        logger.info(f"✅ {len(returnObject)} objects récupérées depuis iObeya.")
+        return returnObject
 
     except requests.exceptions.RequestException as e:
-        print(f"❌ Erreur lors de la récupération des features iObeya : {e}")
-        return pd.DataFrame(columns=["id", "id_Epic", "Nom_Feature", "Etat", "Description", "Type", "Gains", "Commentaires"])
+        logger.warning(f"❌ Erreur lors de la récupération des objects iObeya : {e}")
+        return None
 
-
-def iobeya_create_missing_cards(iobeya_conf, context):
+def iobeya_board_create_objects(iobeya_conf, context):
     """
     Crée dans iObeya les cards marquées 'create' dans iobeya_diff.
     """

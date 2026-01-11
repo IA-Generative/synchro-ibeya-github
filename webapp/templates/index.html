@@ -315,9 +315,8 @@
 
     <div style="margin: 1.5em 0 0.5em 0;">
       <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button>
-      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub">Synchro Grist &gt; iobeya+github</button>
-      <button id="syncBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">Synchro Grist
-        &lt; iobeya+github</button>
+      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub">Pousse Features dans iObeya/GitHub</button>
+      <button id="syncBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">Récupère Objets dans Grist</button>
     </div>
 
 <pre id="results"
@@ -482,7 +481,7 @@
         iobeya_room_id,
         github_project_id: document.getElementById('githubSelect').value
       };
-      const res = await fetch('/verify', {
+      const res = await fetch('/prepare', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body)

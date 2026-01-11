@@ -1,11 +1,15 @@
 import re
 
 
-def _extract_id_and_clean_for_kind(text, kind=None):
+def extract_id_and_clean_for_kind(text, kind=None):
     """Auto-detect a bracketed tag/ID and return (cleaned_text, detected_kind, pi_number, item_number).
 
-    detected_kind ∈ {'feature', 'risk', 'dep', 'tobj', 'utobj', 'issue', None}
-
+    detected_kind ∈ {'Features', 'Risques', 'Dependances', 'tobj', 'utobj', 'Issues', None}
+    
+    Attention :
+        la nature du contenue correspond également au nom de la table dans Grist
+        sauf pour utobj et tobj qui sont gardés tels quels > table 'Objectives' avec une colonne 'commited'
+    
     Rules (case-insensitive):
       - feature tag: [Feat] ; feature id: [FP<pi>-<item>]
       - risk tag:    [Rsk]  ; risk id:    [RP<pi>-<item>]
@@ -29,6 +33,7 @@ def _extract_id_and_clean_for_kind(text, kind=None):
 
     # Precompiled per-kind token matchers (case-insensitive)
     id_fp_re = re.compile(r"^FP(\d+)-(\d+)$", re.IGNORECASE)
+    id_fp_short_re = re.compile(r"^FP-(\d+)$", re.IGNORECASE)
     id_rp_re = re.compile(r"^RP(\d+)-(\d+)$", re.IGNORECASE)
     id_dp_re = re.compile(r"^DP(\d+)-(\d+)$", re.IGNORECASE)
     id_tobj_re = re.compile(r"^TObjP(\d+)-(\d+)$", re.IGNORECASE)
@@ -38,6 +43,7 @@ def _extract_id_and_clean_for_kind(text, kind=None):
     tag_feat_re = re.compile(r"^feat$", re.IGNORECASE)
     tag_rsk_re = re.compile(r"^rsk$", re.IGNORECASE)
     tag_dp_re = re.compile(r"^dp$", re.IGNORECASE)
+    tag_dep_re = re.compile(r"^dep$", re.IGNORECASE)
     tag_tobj_re = re.compile(r"^tobj$", re.IGNORECASE)
     tag_utobj_re = re.compile(r"^utobj$", re.IGNORECASE)
     tag_bug_re = re.compile(r"^bug$", re.IGNORECASE)
@@ -54,15 +60,23 @@ def _extract_id_and_clean_for_kind(text, kind=None):
 
         m_fp = id_fp_re.match(token)
         if m_fp:
-            detected_kind = "feature"
+            detected_kind = "Features"
             pi_number = int(m_fp.group(1))
             item_number = int(m_fp.group(2))
             token_to_remove = m.group(0)
             break
 
+        m_fp_short = id_fp_short_re.match(token)
+        if m_fp_short:
+            detected_kind = "Features"
+            pi_number = 0
+            item_number = int(m_fp_short.group(1))
+            token_to_remove = m.group(0)
+            break
+
         m_rp = id_rp_re.match(token)
         if m_rp:
-            detected_kind = "risk"
+            detected_kind = "Risques"
             pi_number = int(m_rp.group(1))
             item_number = int(m_rp.group(2))
             token_to_remove = m.group(0)
@@ -70,7 +84,7 @@ def _extract_id_and_clean_for_kind(text, kind=None):
 
         m_dp = id_dp_re.match(token)
         if m_dp:
-            detected_kind = "dep"
+            detected_kind = "Dependances"
             pi_number = int(m_dp.group(1))
             item_number = int(m_dp.group(2))
             token_to_remove = m.group(0)
@@ -94,24 +108,24 @@ def _extract_id_and_clean_for_kind(text, kind=None):
 
         m_issue = id_issue_re.match(token)
         if m_issue:
-            detected_kind = "issue"
+            detected_kind = "Issues"
             pi_number = int(m_issue.group(1))
             item_number = int(m_issue.group(2))
             token_to_remove = m.group(0)
             break
 
         if tag_feat_re.match(token):
-            detected_kind = "feature"
+            detected_kind = "Features"
             token_to_remove = m.group(0)
             break
 
         if tag_rsk_re.match(token):
-            detected_kind = "risk"
+            detected_kind = "Risques"
             token_to_remove = m.group(0)
             break
 
-        if tag_dp_re.match(token):
-            detected_kind = "dep"
+        if tag_dp_re.match(token) or tag_dep_re.match(token):
+            detected_kind = "Dependances"
             token_to_remove = m.group(0)
             break
 
@@ -126,7 +140,7 @@ def _extract_id_and_clean_for_kind(text, kind=None):
             break
 
         if tag_bug_re.match(token) or tag_issue_re.match(token):
-            detected_kind = "issue"
+            detected_kind = "Issues"
             token_to_remove = m.group(0)
             break
 
@@ -142,8 +156,8 @@ def _extract_id_and_clean_for_kind(text, kind=None):
 
 def extract_feature_id_and_clean(text):
     """Extract feature only: [Feat] or [FP<pi>-<item>]. Returns (cleaned_text, pi_number, item_number) or (cleaned_text, None, None) if not a feature."""
-    cleaned_text, detected_kind, pi_number, item_number = _extract_id_and_clean_for_kind(text)
-    if detected_kind == "feature":
+    cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(text)
+    if detected_kind == "Features":
         return cleaned_text, pi_number, item_number
     return cleaned_text, None, None
 
@@ -154,24 +168,24 @@ def extract_issue_id_and_clean(text):
     Returns (cleaned_text, pi_number, item_number) if an issue is detected,
     otherwise (cleaned_text, None, None).
     """
-    cleaned_text, detected_kind, pi_number, item_number = _extract_id_and_clean_for_kind(text)
-    if detected_kind == "issue":
+    cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(text)
+    if detected_kind == "Issues":
         return cleaned_text, pi_number, item_number
     return cleaned_text, None, None
 
 
 def extract_risk_id_and_clean(text):
     """Extract risk only: [Rsk] or [RP<pi>-<item>]. Returns (cleaned_text, pi_number, item_number) or (cleaned_text, None, None) if not a risk."""
-    cleaned_text, detected_kind, pi_number, item_number = _extract_id_and_clean_for_kind(text)
-    if detected_kind == "risk":
+    cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(text)
+    if detected_kind == "Risques":
         return cleaned_text, pi_number, item_number
     return cleaned_text, None, None
 
 
 def extract_dependence_id_and_clean(text):
     """Extract dependency only: [DP] or [DP<pi>-<item>]. Returns (cleaned_text, pi_number, item_number) or (cleaned_text, None, None) if not a dependency."""
-    cleaned_text, detected_kind, pi_number, item_number = _extract_id_and_clean_for_kind(text)
-    if detected_kind == "dep":
+    cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(text)
+    if detected_kind == "Dependances":
         return cleaned_text, pi_number, item_number
     return cleaned_text, None, None
 
@@ -190,7 +204,7 @@ def extract_objective_id_and_clean(text):
 
     Note: For tag-only patterns ([TObj] / [uTObj]) pi_number and item_number are 0.
     """
-    cleaned_text, detected_kind, pi_number, item_number = _extract_id_and_clean_for_kind(text)
+    cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(text)
 
     if detected_kind == "tobj":
         return cleaned_text, pi_number, item_number, "committed"

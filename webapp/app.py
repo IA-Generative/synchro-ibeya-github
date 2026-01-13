@@ -6,6 +6,8 @@ import requests
 import yaml
 import uuid
 import logging
+import pandas as pd
+import math
 
 # session_store peut être importé soit via le package webapp (si webapp est un package),
 # soit directement depuis le répertoire courant (si app.py est exécuté comme script).
@@ -88,6 +90,58 @@ logging.getLogger("watchdog").setLevel(logging.WARNING)
 logging.getLogger("watchdog.observers").setLevel(logging.WARNING)
 print("🪵 Logging initialisé : niveau WARNING activé pour Flask et Werkzeug")
 
+# --- JSON-safe helpers ---
+
+def _json_safe(value):
+    """Convert values that are not valid JSON (NaN/Inf, pandas NA) to JSON-safe equivalents."""
+    try:
+        # pandas missing values
+        if value is pd.NA:
+            return None
+    except Exception:
+        pass
+
+    # floats: NaN/Inf are not valid JSON
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+
+    # pandas / numpy scalars sometimes appear in dicts
+    try:
+        if hasattr(value, "item") and callable(value.item):
+            return _json_safe(value.item())
+    except Exception:
+        pass
+
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+
+    return value
+
+
+def df_to_records_jsonsafe(df):
+    """Convert a pandas DataFrame to JSON-safe list of records (no NaN/Inf)."""
+    if df is None:
+        return []
+    try:
+        if hasattr(df, "empty") and df.empty:
+            return []
+        # Replace pandas missing values and numpy.nan with None
+        df2 = df.copy()
+        df2 = df2.where(pd.notnull(df2), None)
+        return _json_safe(df2.to_dict(orient="records"))
+    except Exception:
+        # Fallback: best-effort conversion
+        try:
+            return _json_safe(df.to_dict(orient="records"))
+        except Exception:
+            return []
+
 # Load configuration from config.yaml or config.example.yaml
 config_path = "config.yaml" if os.path.exists("config.yaml") else "config.example.yaml"
 
@@ -116,6 +170,20 @@ IOBEYA_TYPES_CARD_FEATURES = iobeya_conf.get("types_card_features", [])
 github_conf = config.get("github", {})
 GITHUB_TOKEN_ENV_VAR = github_conf.get("token_env_var", "")
 GITHUB_ORGANIZATIONS = github_conf.get("organizations", [])
+
+# --- Allowed object types for diffing (explicit allowlists)
+IOBEYA_ALLOWED_OBJECT_TYPES = {
+    "Features",
+    "Risques",
+    "Objectives",
+    "Dependances",
+    "Issues"
+}
+
+GITHUB_ALLOWED_OBJECT_TYPES = {
+    "Features",
+    "Issues"
+}
 
 # --- Vérification de clés d'accès sécurisées à l'application ---
 
@@ -294,7 +362,6 @@ def verify():
         doc_id_param = data.get("doc_id", "").strip()
         if doc_id_param:
             grist_doc_id = doc_id_param
-        grist_table = data.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = data.get("iobeya_board_id", None)
         #iobeya_container_id = data.get("iobeya_container_id", None)
         #iobeya_room_id = data.get("iobeya_room_id", None)
@@ -308,7 +375,6 @@ def verify():
         doc_id_param = request.args.get("doc_id", "").strip()
         if doc_id_param:
             grist_doc_id = doc_id_param
-        grist_table = request.args.get("grist_table", GRIST_FEATURE_TABLE_NAME)
         iobeya_board_id = request.args.get("iobeya_board_id", default_iobeya_board_id)
         #iobeya_container_id = request.args.get("iobeya_container_id", None)
         #iobeya_room_id = request.args.get("iobeya_room_id", None)  
@@ -326,9 +392,11 @@ def verify():
     session_data["grist_doc_id"] = grist_doc_id
 
     # récupérer les objets depuis grist
+    
     try:
+        epic_obj = grist_get_epic(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, epic )       
         df = grist_get_epic_objects(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, epic, pi or 0)
-        session_data["grist"] = df.to_dict(orient="records") if not df is None or not df.empty else []
+        session_data["grist"] = df_to_records_jsonsafe(df)
         app.logger.info(f" >> ✅ {len(session_data['grist'])} objets récupérées depuis Grist (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features Grist : {e}")
@@ -337,7 +405,7 @@ def verify():
     # récupérer les objets depuis iObeya
     try:
         df = iobeya_get_board_objects(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN, IOBEYA_TYPES_CARD_FEATURES)
-        session_data["iobeya"] = df.to_dict(orient="records") if not df.empty else []
+        session_data["iobeya"] = df_to_records_jsonsafe(df)
         app.logger.info(f" >>✅ {len(session_data['iobeya'])} objets récupérées depuis iObeya (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features iobeya : {e}")
@@ -346,18 +414,14 @@ def verify():
     # récupérer les objets depuis GitHub
     try:
         # `GITHUB_TOKEN_ENV_VAR` contient le nom de la variable d'environnement (ex: "GITHUB_TOKEN")
-
         github_objects = github_get_project_objects(github_project_id, GITHUB_TOKEN_ENV_VAR)
-
-        # github_get_project_objects() renvoie actuellement une liste de dicts (pas un DataFrame)
         if isinstance(github_objects, list):
-            session_data["github"] = github_objects
+            session_data["github"] = _json_safe(github_objects)
         else:
             # Compat: si la fonction renvoie un DataFrame à l'avenir
             df = github_objects
-            session_data["github"] = df.to_dict(orient="records") if (df is not None and not df.empty) else []
+            session_data["github"] = df_to_records_jsonsafe(df)
         app.logger.info(f" >>✅ {len(session_data['github'])} objets récupérés depuis GitHub (app.py).")  
-
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des objets GitHub : {e}")
         session_data["github"].clear()
@@ -372,9 +436,21 @@ def verify():
         id_epic_value = grist_get_epic(GRIST_API_URL,grist_doc_id,GRIST_API_TOKEN,epic,"Epics")
 
         # Calcul des diffs iObeya et GitHub vs grist
-        session_data["iobeya_diff"] = compute_diff(session_data["grist"], session_data["iobeya"], rename_deleted, id_epic_value)
+        session_data["iobeya_diff"] = compute_diff(
+            session_data["grist"],
+            session_data["iobeya"],
+            rename_deleted,
+            epic_obj,
+            allowed_types=IOBEYA_ALLOWED_OBJECT_TYPES,
+        )
         app.logger.info(f"✅ {len(session_data['iobeya_diff'])} différences récupérées depuis iObeya (app.py).")
-        session_data["github_diff"] = compute_diff(session_data["grist"], session_data["github"], rename_deleted, id_epic_value)
+        session_data["github_diff"] = compute_diff(
+            session_data["grist"],
+            session_data["github"],
+            rename_deleted,
+            epic_obj,
+            allowed_types=GITHUB_ALLOWED_OBJECT_TYPES,
+        )
         app.logger.info(f"✅ {len(session_data['github_diff'])} différences récupérées depuis GitHub (app.py).")
         # NOTE : Pour se rappeller >> la synchronisation bidirectionnelle doit également synchroniser les features "not_present" entre iobeya et github (voir sync.py)
     except Exception as e:
@@ -384,11 +460,11 @@ def verify():
     session_store.set(session_id, session_data)
 
     return jsonify({
-        "grist": session_data["grist"],
-        "iobeya": session_data["iobeya"],
-        "github": session_data["github"],
-        "iobeya_diff": session_data["iobeya_diff"],
-        "github_diff": session_data["github_diff"]
+        "grist": _json_safe(session_data["grist"]),
+        "iobeya": _json_safe(session_data["iobeya"]),
+        "github": _json_safe(session_data["github"]),
+        "iobeya_diff": _json_safe(session_data["iobeya_diff"]),
+        "github_diff": _json_safe(session_data["github_diff"])
     })
 
 @app.route("/sync", methods=["POST"])

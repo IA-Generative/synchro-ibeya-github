@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 
 from sync.sync_grist import (
     grist_create_epic_objects
@@ -7,6 +8,13 @@ from sync.sync_iobeya import (
     iobeya_board_create_objects
 )
 
+
+# --- Activation et configuration des logs ---
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger("sync")
 
 def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
     """
@@ -17,8 +25,7 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
             {
                 "api_url": "...",
                 "doc_id": "...",
-                "api_token": "...",
-                "feature_table_name": "Features"
+                "api_token": "..."
             }
         iobeya_conf (dict): paramètres iObeya, ex:
             {
@@ -39,7 +46,7 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
                 "epic_id": "...",
                 "rename_deleted": True/False,
                 "force_overwrite": True/False,
-                "pi": "PI-04"
+                "pi": ".."
             }
 
     Returns:
@@ -83,77 +90,144 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
 
     return result
 
-def compute_diff(grist_data, dest_data, rename_deleted=False, epic=None):
+def compute_diff(grist_object, dest_object, rename_deleted=False, epic_obj=None, allowed_types=None):
     """
-    Compare les features de Grist et d'iObeya pour déterminer les actions à effectuer.
-    - Si la feature existe dans les deux, compare le titre et la description.
-    - Si différence, détermine la source en fonction du timestamp le plus récent.
-    - Si rename_deleted=True, remplace la suppression par un renommage en 'del_...'.
-    - Si une feature existe uniquement dans dest_features, action = "not_present" (pour réimporter dans Grist (bi-directionnel ou synchroniser forcer qui entraîne un effacement)).
-    Retourne une liste de différences :
-    [{"id": id_feature, "action": "create"|"update_grist"|"update_iobeya"|"not_present"|"delete"|"none"|"manual_check", "feature": {...}}]
+    compute_diff calcule à partir d’une clé composite (type, id_Num, Nom)
+    les opérations minimales nécessaires pour synchroniser Grist avec un système cible
+    en appliquant un filtrage strict par type et une gestion optionnelle des suppressions logiques.
+    Returns a list of diffs avec un type d'action tel que :"create","update_grist","not_present","none"
     """
-    diff_list = []
-    grist_dict = {str(f.get("id_feature")): f for f in grist_data if f.get("id_feature")}
-    dest_dict = {str(f.get("id_feature")): f for f in dest_data if f.get("id_feature")}
 
+    #    Notes: 
+    #    items sans "type" sont ignorés
+    #    comparaison se fait sur le type normalisé (minuscules, espaces retirés)
+    #    Les items sans id_Num sont considérés comme non existant dans l'autre système,
+    #    S'il y a un id_num c'est que l'item est succeptible d'être synchronisé,
+    #       il faut poursuivre la comparaison avec un autre attribut
+
+    diff_list = []
+    grist_dict = {}
+    dest_dict = {}
+        
+    # Normalize allowlist (case-insensitive).
+    allowed_set = None
+    if allowed_types:
+        allowed_set = {_normalize_type(t) for t in allowed_types if str(t).strip()}
+    
+    # Build lookup dicts (single pass each; avoid calling _item_key twice).
+    for item in (grist_object or []):
+        k = _item_key(item, allowed_set)
+        if k:
+            grist_dict[k] = item
+
+    for item in (dest_object or []):
+        k = _item_key(item, allowed_set)
+        if k:
+            dest_dict[k] = item
+            
+    # Conclude building lookup dicts
     all_ids = set(grist_dict.keys()) | set(dest_dict.keys())
 
     for fid in all_ids:
-        g_feat = grist_dict.get(fid)
-        i_feat = dest_dict.get(fid)
+        g_objects = grist_dict.get(fid)
+        d_objects = dest_dict.get(fid)
 
-        # Cas 1 : création — présent dans Grist uniquement
-        if g_feat and not i_feat:
-            diff_list.append({"id": fid, "action": "create", "feature": g_feat})
+        # Case 1: present in Grist only => create in dest
+        if g_objects and not d_objects:
+            if epic_obj:
+                g_objects["id_Epic"] = epic_obj.get("id_Epic") if isinstance(epic_obj, dict) else "" # on ajoute la liaison avec l'epic dans le nouvel objet
 
-        # Cas 2 : suppression — présent dans dest uniquement (mais si on souhaite rapatrier, alors "not_present")
-        elif not g_feat and i_feat:
-            if epic:
-                # Réimport d'une nouvelle feature depuis dest vers Grist
-                new_feat = dict(i_feat)
-                new_feat["id_Epic"] = epic
-                diff_list.append({"id": fid, "action": "not_present", "feature": new_feat})
-            elif rename_deleted:
-                updated = dict(i_feat)
-                updated["Nom_Feature"] = f"del_{i_feat.get('Nom_Feature', '')}"
-                diff_list.append({"id": fid, "action": "update", "feature": updated})
-            else:
-                diff_list.append({"id": fid, "action": "delete", "feature": i_feat})
+            diff_list.append({"action": "create", "Nom": g_objects.get("Nom"), "type": g_objects.get("type"), "id_Num": g_objects.get("id_Num"), "id_Epic": g_objects.get("id_Epic")})
+            continue
 
-        # Cas 3 : présent dans les deux
-        elif g_feat and i_feat:
-            g_name = (g_feat.get("Nom_Feature") or "").strip()
-            i_name = (i_feat.get("Nom_Feature") or "").strip()
-            g_desc = (g_feat.get("Description") or "").strip()
-            i_desc = (i_feat.get("Description") or "").strip()
+        # Case 2: present in dest only
+        if not g_objects and d_objects:
+            new_object = dict(d_objects)
+            
+            if epic_obj:
+                new_object["id_Epic"] = epic_obj.get("id_Epic") if isinstance(epic_obj, dict) else "" # on ajoute la liaison avec l'epic dans le nouvel objet
 
-            if g_name != i_name or g_desc != i_desc:
-                try:
-                    g_time = datetime.fromisoformat(str(g_feat.get("timestamp")))
-                    i_time = datetime.fromisoformat(str(i_feat.get("timestamp")))
-                except Exception:
-                    g_time = i_time = None
+            #if rename_deleted: # Mark as deleted in source by renaming.
+            #    new_object["Nom"] = f"del_{d_objects.get('Nom', '')}"
+            #    diff_list.append({"action": "update_grist", "Nom": new_object.get("Nom"), "type": new_object.get("type"), "id_Num": new_object.get("id_Num"), "id_Epic": new_object.get("id_Epic")})
+            #else:
+            
+            diff_list.append({"action": "not_present", "Nom": new_object.get("Nom"), "type": new_object.get("type"), "id_Num": new_object.get("id_Num"), "id_Epic": new_object.get("id_Epic")})
+            continue
 
-                if g_time and i_time:
-                    if g_time > i_time:
-                        diff_list.append({"id": fid, "action": "update_iobeya", "feature": g_feat})
-                    elif i_time > g_time:
-                        diff_list.append({"id": fid, "action": "update_grist", "feature": i_feat})
-                    else:
-                        diff_list.append({"id": fid, "action": "none", "feature": g_feat})
-                else:
-                    # Si timestamp absent ou invalide
-                    diff_list.append({"id": fid, "action": "manual_check", "feature": g_feat})
-            else:
-                diff_list.append({"id": fid, "action": "none", "feature": g_feat})
+        # Case 3: present in both => compare fields
+        # ici les objets sont identiques
+        
+        if g_objects and d_objects:
+            if epic_obj:
+                g_objects["id_Epic"] = epic_obj.get("id_Epic") if isinstance(epic_obj, dict) else "" # on ajoute la liaison avec l'epic dans le nouvel objet
 
-    # Résumé des actions
-    stats = {a: sum(1 for d in diff_list if d["action"] == a)
-             for a in ["create", "update_iobeya", "update_grist", "not_present", "delete", "manual_check", "none"]}
+            diff_list.append({"action": "none","Nom": g_objects.get("Nom"), "type": g_objects.get("type"), "id_Num": g_objects.get("id_Num"), "id_Epic": g_objects.get("id_Epic")})
 
-    print(f"📊 Différences calculées : {len(diff_list)} au total")
+    # Stats summary
+    stats_keys = [
+        "create",
+        "update_grist",
+        "not_present",
+        "none"
+    ]
+    
+    stats = {a: sum(1 for d in diff_list if d["action"] == a) for a in stats_keys}
+
+    logger.info(f"📊 Différences calculées : {len(diff_list)} au total")
+    
     for k, v in stats.items():
-        print(f"  • {k} : {v}")
+        logger.info(f"  • {k} : {v}")
 
     return diff_list
+
+
+from typing import Optional, Set
+
+def _item_key(item: dict, allowed_types: Optional[Set[str]] = None) -> str:
+    """Build a stable key including item type when available.
+    - Key is "<type>::<id_Num>"::"<Nom>" when type is present.
+    When `allowed_types` is provided, strict mode: untyped items are ignored.
+    """
+    if not item:
+        return ""
+
+    # on récupère les infos pour créer la clé de comparaison
+    item_num = _get_item_num(item)
+    item_type = _get_item_type(item)
+    item_name = _get_item_name(item)
+    
+    # Strict mode: never accept untyped items.
+    if not item_type:
+        return ""
+    
+    # If an allowlist is provided, enforce it.
+    if allowed_types is not None and item_type not in allowed_types:
+        return ""
+
+    return f"{item_type}::{item_num}::{item_name}"
+
+def _get_item_type(item: dict) -> str:
+    """Extract a normalized item type from common field names."""
+    if not item:
+        return ""
+    item_type = item.get("type")
+    return _normalize_type(item_type) if str(item_type).strip() else ""
+
+def _get_item_name(item: dict) -> str:
+    """Extract a normalized item type from common field names."""
+    if not item:
+        return ""
+    item_type = item.get("Nom")
+    return _normalize_type(item_type) if str(item_type).strip() else ""
+
+def _get_item_num(item: dict) -> str:
+    """Extract a normalized item type from common field names."""
+    if not item:
+        return ""
+    item_type = item.get("id_Num")
+    return _normalize_type(item_type) if str(item_type).strip() else ""
+
+def _normalize_type(t: str) -> str:
+    """Normalize type values for matching (case/spacing)."""
+    return str(t).strip().lower()

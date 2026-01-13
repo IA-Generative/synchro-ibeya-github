@@ -266,12 +266,10 @@ def github_get_project_objects(projectId, github_token):
                 objects.append({
                     "type": detected_kind,
                     "id_GitHub": node.get("id"),
-                    "Nom_Feature": cleaned_text or "(Sans titre)",
-                    **({"Nom_Feature": cleaned_text} if detected_kind == "Features" else {}),
+                    "Nom": cleaned_text or "(Sans Nom)",
                     **({"Description": body} if detected_kind == "Features" else {}),
-                    **({"Description": cleaned_text} if detected_kind == "Issues" else {}),
                     "id_Num": item_number,
-                    "pi_num": pi_number,
+                    "pi_Num": pi_number,
                     "Etat": state,
                     "Commentaires": url_issue,
                     "timestamp": updated

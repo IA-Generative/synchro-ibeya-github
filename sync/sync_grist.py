@@ -65,7 +65,7 @@ def grist_get_epics(base_url, doc_id, api_key, table_name="Epics"):
             id_epic = fields.get("id_Epic") or fields.get("id2") or fields.get("id_epic")
             if epic_name:
                 epics.append({
-                    "id": record_id,
+                    "id": record_id, # identifiant interne Grist
                     "id_epic": id_epic,
                     "name": epic_name
                 })
@@ -81,7 +81,8 @@ def grist_get_epics(base_url, doc_id, api_key, table_name="Epics"):
 def grist_get_epic(base_url, doc_id, api_key, epic_id, table_name="Epics"):
     
     """
-    Récupère le contenu complet d'un Epic à partir de son identifiant.
+    Récupère le contenu complet d'un Epic à partir de son identifiant manuel id_epic.
+    note : la colonne id_Epic est numérotée manuelle par l'utilisateur dans grist
     Retourne un dictionnaire contenant les champs de l'Epic.
     """
     
@@ -100,6 +101,10 @@ def grist_get_epic(base_url, doc_id, api_key, epic_id, table_name="Epics"):
 
         if data:
             the_epic = find_item_by_id(data["records"], epic_id,"id")
+            the_epic = { # simplification de l'objet epic pour faciliter les comparaisons
+                "id": the_epic.get("id"),
+                **the_epic.get("fields", {})
+            } 
             return the_epic
         else : 
             return None
@@ -158,22 +163,17 @@ def grist_get_epic_objects(base_url, doc_id, api_key, filter_epic_id=None , pi=0
 ###    
    
 def grist_get_epic_object(base_url, doc_id, api_key, table_name, filter_epic_id=None , pi=0):
-
-    if filter_epic_id is not None:
-        # Détermine le champ de liaison Epic et récupère les informations de l'Epic correspondant
-        # Récupère les informations de l'Epic correspondant
-        objects = grist_get_epic(base_url, doc_id, api_key, filter_epic_id)
-        
-        fields = {
-                "id": objects.get("id"),
-                **objects.get("fields", {})
-            }  
-        
     """
     Récupère l'ensemble des données depuis la source de données Grist.
     Retourne un tuple (DataFrame pandas, dernier_timestamp).
     """
-
+        
+    # Détermine le champ de liaison Epic et récupère les informations de l'Epic correspondant
+    # Récupère les informations de l'Epic correspondant
+    
+    if filter_epic_id is not None:
+        epic = grist_get_epic(base_url, doc_id, api_key, filter_epic_id)
+        
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json"
@@ -194,6 +194,7 @@ def grist_get_epic_object(base_url, doc_id, api_key, table_name, filter_epic_id=
             fields = {
                 "type": table_name, # permet de différencier les types d'items
                 "id": rec.get("id"),
+                "id_Epic": epic.get("id_Epic") if filter_epic_id else None,
                 **rec.get("fields", {})
             }
             if table_name == "Features":
@@ -215,11 +216,11 @@ def grist_get_epic_object(base_url, doc_id, api_key, table_name, filter_epic_id=
 
             # Met à jour le dernier timestamp si nécessaire                
             # Si pi < 1, on considère que le filtre n'est pas appliqué (condition passante)
-            if pi_val < 1 or str(fields.get("PI_Num")) == str(pi_val):
+            if pi_val < 1 or str(fields.get("pi_Num")) == str(pi_val):
 
                 if filter_epic_id is not None:
-                    str1 = str(fields.get("id_Epic"))
-                    str2 = str(filter_epic_id)
+                    str1 = str(fields.get("Epic"))
+                    str2 = str(epic.get("id"))
                     if str1 == str2:
                         records.append(fields)
                 else:
@@ -241,7 +242,8 @@ def grist_get_epic_object(base_url, doc_id, api_key, table_name, filter_epic_id=
         logger.warning(f"❌ Erreur lors de la récupération des données Grist : {e}")
         return pd.DataFrame(), None
     
-### Création des objets dans Grist si "action = 'not_present'" partir du fichier de diffs issue d'iObeya et GitHub    
+### Création des objets lié à un EPIC / PI pi number
+#   dans Grist si "action = 'not_present'" partir du fichier de diffs issue d'iObeya et GitHub    
 
 def grist_create_epic_objects(grist_conf, context):
     """

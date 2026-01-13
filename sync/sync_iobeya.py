@@ -172,11 +172,11 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                         objectives = {
                                 "type": "Objectives",
                                 "uid": item.get("id"),
-                                "Description": cleaned_text,
+                                "Nom": cleaned_text,
                                 "timestamp": item.get("modificationDate"),
                                 "id_Num": item_number,
                                 "Commited": "committed" if commitment == "committed" else "uncommitted",
-                                "pi_num": pi_number,
+                                "pi_Num": pi_number,
                             }
                         objects.append(objectives)
                         
@@ -190,43 +190,17 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                 else :
                     logger.warning(f"❌ card d'object inattendu (props manquants)")
     
-                if detected_kind == "Features":
+                if detected_kind == "Features" or detected_kind == "Dependances" or detected_kind == "Risques":
                     feature = {
                         "type": detected_kind,
                         "uid": item.get("id"),
-                        "Nom_Feature": cleaned_text,
-                        "Description": l_props.get("description"),
+                        "Nom": cleaned_text,
                         "timestamp": item.get("modificationDate"),
                         "id_Num": item_number,
-                        "pi_num": pi_number,
+                        "pi_Num": pi_number,
                     }    
                     objects.append(feature)
-            
-                if detected_kind == "Dependances":
-                    dependance = {
-                        "type": detected_kind,
-                        "uid": item.get("id"),
-                        "Libelle": cleaned_text,
-                        "Description": cleaned_text,
-                        "timestamp": item.get("modificationDate"),
-                        "id_Num": item_number,
-                        "pi_num": pi_number,
-                    }    
-                    objects.append(dependance)
-                
-                if detected_kind == "Risques":
-                    risque = {
-                        "type": detected_kind,
-                        "uid": item.get("id"),
-                        "Libelle": cleaned_text,
-                        "Impact": cleaned_text,
-                        "timestamp": item.get("modificationDate"),
-                        "id_Num": item_number,
-                        "pi_num": pi_number,
-                    }    
-                    objects.append(risque)
-                                                              
-                        
+                                                                                    
             # - si carte de type BoardCardDTO on creer un array de cartes à traiter après
             if   item_class == "com.iobeya.dto.BoardCardDTO":
                 filtered_cards.append(item)
@@ -272,11 +246,11 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                     feature = {
                         "type": "Features",
                         "uid": l_card.get("id"),
-                        "Nom_Feature": clean_title,
+                        "Nom": clean_title,
                         "Description": appendchecklist,
                         "timestamp": l_card.get("modificationDate"),
                         "id_Num": item_id,
-                        "pi_num": pi_number,
+                        "pi_Num": pi_number,
                     }
                     
             else : # si carte d’un autre type que FeatureCard
@@ -286,64 +260,27 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                         cleaned_text, detected_kind, pi_number, item_number = extract_id_and_clean_for_kind(l_props.get("title"), kind=None)
                     else :
                         logger.warning(f"❌ card de format inattendu (props manquants)")
-    
-                    if detected_kind == "Features":
-                        feature = {
-                            "type": detected_kind,
-                            "uid": l_card.get("id"),
-                            "Nom_Feature": cleaned_text,
-                            "Description": l_props.get("description"),
-                            "timestamp": l_card.get("modificationDate"),
-                            "id_Num": item_number,
-                            "pi_num": pi_number,
-                        }    
-                        objects.append(feature)
                 
-                    if detected_kind == "Dependances":
+                    if detected_kind == "Features" or detected_kind == "Dependances" or detected_kind == "Risques" or detected_kind == "Issues":
                         dependance = {
                             "type": detected_kind,
                             "uid": l_card.get("id"),
-                            "Libelle": cleaned_text,
-                            "Description": cleaned_text,
+                            "Nom": cleaned_text,
                             "timestamp": l_card.get("modificationDate"),
                             "id_Num": item_number,
-                            "pi_num": pi_number,
+                            "pi_Num": pi_number,
                         }    
-                        objects.append(dependance)
-                    
-                    if detected_kind == "Risques":
-                        risque = {
-                            "type": detected_kind,
-                            "uid": l_card.get("id"),
-                            "Libelle": cleaned_text,
-                            "Impact": cleaned_text,
-                            "timestamp": l_card.get("modificationDate"),
-                            "id_Num": item_number,
-                            "pi_num": pi_number,
-                        }    
-                        objects.append(risque)
-                        
-                    if detected_kind == "Issues":
-                        issue = {
-                            "type": detected_kind,
-                            "uid": l_card.get("id"),
-                            "Titre_Issue": cleaned_text,
-                            "Description": l_props.get("description"),
-                            "timestamp": l_card.get("modificationDate"),
-                            "id_Num": item_number,
-                            "pi_num": pi_number
-                        }    
-                        objects.append(issue)
-                        
+                        objects.append(dependance)                   
+                                              
                     if detected_kind == "committed" or detected_kind == "uncommitted":
                         objective = {
                             "type": "Objectives",
                             "uid": l_card.get("id"),
-                            "Description": cleaned_text,
+                            "Nom": cleaned_text,
                             "Commited": "committed" if detected_kind == "committed" else "uncommitted",
                             "timestamp": l_card.get("modificationDate"),
                             "id_Num": item_number,
-                            "pi_num": pi_number,
+                            "pi_Num": pi_number,
                         }    
                         objects.append(objective)
                            

@@ -315,8 +315,8 @@
 
     <div style="margin: 1.5em 0 0.5em 0;">
       <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button>
-      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub">Pousse Features dans iObeya/GitHub</button>
-      <button id="syncBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">Récupère Objets dans Grist</button>
+      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub">Features Grist >> iObeya/GitHub</button>
+      <button id="syncBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">Récupère Grist << iObeya/GitHub</button>
     </div>
 
 <pre id="results"
@@ -505,9 +505,9 @@
 
         let table = "<table style='border-collapse: collapse; width: 100%; font-size: 0.8em;'>";
         if (hasAction) {
-          table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>Action</th><th style='width:8%'>ID Épic</th><th style='width:10%'>ID Feature</th><th style='width:59%'>Nom</th><th style='width:15%'>Timestamp</th></tr>";
+          table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>Action</th><th style='width:8%'>id Num</th><th style='width:10%'>ID Feature</th><th style='width:59%'>Nom</th><th style='width:15%'>Type</th><th style='width:15%'>Timestamp</th></tr>";
         } else {
-          table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>ID Épic</th><th style='width:10%'>ID Feature</th><th style='width:67%'>Nom</th><th style='width:15%'>Timestamp</th></tr>";
+          table += "<tr style='background:#1976d2;color:white;'><th style='width:8%'>id Num</th><th style='width:10%'>ID Feature</th><th style='width:67%'>Nom</th><th style='width:15%'>Type</th><th style='width:15%'>Timestamp</th></tr>";
         }
 
         for (const row of dataArray) {
@@ -522,15 +522,17 @@
             table += `<tr>
               <td style='border:1px solid #ccc;padding:4px;'>${row?.action || ''}</td>
               <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_Epic || ''}</td>
-              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_feature || ''}</td>
-              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.Nom_Feature || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_Num || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.Nom || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.type || ''}</td>
               <td style='border:1px solid #ccc;padding:4px;'>${formattedTs}</td>
             </tr>`;
           } else {
             table += `<tr>
               <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_Epic || ''}</td>
-              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_feature || ''}</td>
-              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.Nom_Feature || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.id_Num || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.Nom || ''}</td>
+              <td style='border:1px solid #ccc;padding:4px;'>${rowData?.type || ''}</td>
               <td style='border:1px solid #ccc;padding:4px;'>${formattedTs}</td>
             </tr>`;
           }

@@ -40,7 +40,7 @@ def grist_get_doc_name(base_url, doc_id, api_token):
         logger.warning(f"⚠️ Erreur récupération nom du doc Grist ({doc_id}) : {e}")
         return f"(Doc {doc_id} inconnu)"
 
-### récupération des epics
+### récupération des epics dans une list 
 
 def grist_get_epics(base_url, doc_id, api_key, table_name="Epics"):
     
@@ -69,15 +69,33 @@ def grist_get_epics(base_url, doc_id, api_key, table_name="Epics"):
                     "id_epic": id_epic,
                     "name": epic_name
                 })
+                
+        epics = _sort_epics_by_name(epics, key_name="name")
+        logger.info(f"✅ {len(epics)} épics récupérés depuis Grist (triés par nom).")
 
-        logger.info(f"✅ {len(epics)} épics récupérés depuis Grist.")
         return epics
     
     except requests.RequestException as e:
         logger.warning(f"⚠️ Erreur API Grist : {e}")
         return []
     
-# Fonction pour récupérer un Epic spécifique par l'un des identifiants possible
+def _sort_epics_by_name(epics, key_name="name"):
+    """
+    Trie une liste d'EPICS par ordre alphabétique selon le nom de l'epic.
+    :param epics: liste de dictionnaires EPIC
+                  ex: {"id": ..., "id_epic": ..., "name": ...}
+    :param key_name: clé du nom à utiliser pour le tri (par défaut "name")
+    :return: nouvelle liste triée (sans modifier l'originale)
+    """
+    if not isinstance(epics, list):
+        return []
+
+    return sorted(
+        epics,
+        key=lambda e: (e.get(key_name) or "").strip().lower()
+    )    
+    
+# Fonction pour récupérer un objet Epic spécifique par l'un des identifiants possible
 def grist_get_epic(base_url, doc_id, api_key, epic_id, table_name="Epics"):
     
     """
@@ -99,15 +117,32 @@ def grist_get_epic(base_url, doc_id, api_key, epic_id, table_name="Epics"):
         response.raise_for_status()
         data = response.json()
 
-        if data:
-            the_epic = find_item_by_id(data["records"], epic_id,"id")
-            the_epic = { # simplification de l'objet epic pour faciliter les comparaisons
-                "id": the_epic.get("id"),
-                **the_epic.get("fields", {})
-            } 
-            return the_epic
-        else : 
+        if not data:
             return None
+
+        records = data.get("records", [])
+
+        # 1) Tentative: epic_id est l'ID interne Grist (record id)
+        the_epic = find_item_by_id(records, epic_id, "id")
+
+        # 2) Fallback: epic_id correspond à l'identifiant manuel (id_Epic/id_epic/id2)
+        if the_epic is None:
+            for rec in records:
+                fields = rec.get("fields", {}) or {}
+                manual = fields.get("id_Epic") or fields.get("id_epic") or fields.get("id2")
+                if manual is not None and str(manual) == str(epic_id):
+                    the_epic = rec
+                    break
+
+        if the_epic is None:
+            logger.warning(f"⚠️ Epic introuvable dans Grist pour epic_id={epic_id}.")
+            return None
+
+        # simplification de l'objet epic pour faciliter les comparaisons
+        return {
+            "id": the_epic.get("id"),
+            **(the_epic.get("fields", {}) or {}),
+        }
 
     except requests.RequestException as e:
         logger.warning(f"❌ Erreur lors de la récupération de l'Epic {epic_id} : {e}")
@@ -244,111 +279,132 @@ def grist_get_epic_object(base_url, doc_id, api_key, table_name, filter_epic_id=
     
 ### Création des objets lié à un EPIC / PI pi number
 #   dans Grist si "action = 'not_present'" partir du fichier de diffs issue d'iObeya et GitHub    
+# NOTE / TODO : Pour se rappeller 
+# >> si synchronisation est bidirectionnelle 
+# elle doit également tenir compte des updates entre les deux systèmes iobeya et github... 
+# ex: lancer une deuxième synchronisation après la création des éléments manquants ? )
 
 def grist_create_epic_objects(grist_conf, context):
     """
     Crée dans Grist les features présentes dans iObeya ou GitHub
     mais absentes de Grist (action = 'not_present').
     """
-    created = []
+    wrapper = context or {}
+    # `sync.py` passe un wrapper contenant `session_data` (les listes) + des clés top-level
+    session_data = wrapper.get("session_data", wrapper)
+    iobeya_objects = session_data.get("iobeya_objects", [])
+    github_objects = session_data.get("github_objects", [])
+    grist_objects = session_data.get("grist_objects", [])
+
+    if not grist_conf or session_data is None:
+        logger.warning("❌ Configuration Grist ou données de session manquantes.")
+        return []
+
+    # Les listes peuvent être vides : ce n'est pas bloquant.
+    iobeya_objects = iobeya_objects or []
+    github_objects = github_objects or []
+    grist_objects = grist_objects or []
+
+    # récupère les variables de contexte nécessaires
     api_url = grist_conf.get("api_url")
-    doc_id = (
-        context.get("session_data", {}).get("grist_doc_id")
-        or context.get("grist_doc_id")
-        or grist_conf.get("doc_id")
-    )
-    logger.info(f"📘 Doc_id actif utilisé pour la création : {doc_id}")
+    doc_id = grist_conf.get("doc_id")
     api_token = grist_conf.get("api_token")
-    table_name = grist_conf.get("feature_table_name", "Features")
-
-    # Fusion des diffs iObeya et GitHub
-    combined_diffs = []
-    nitem = {}
+    pi_Num = wrapper.get("pi_num", 0)
     
-    for item in context.get("iobeya_diff", []):
-        if item.get("action") == "not_present":
-            combined_diffs.append(item["feature"])
-            nitem.clear()
-            nitem = item.copy()
-            nitem["action"] = "create"  # permet d'indiquer création également dans github
-            context.get("github_diff").append(nitem)
+    # Epic sélectionné : pour que le put API fonctionne il faut utiliser le meme type de colonne que dans grist
+    # Ici c'est la colonne Nom de la table Epics qui est utilisée
 
-    for item in context.get("github_diff", []):
-        if item.get("action") == "not_present":
-            combined_diffs.append(item["feature"])
-            nitem.clear()
-            nitem = item.copy()
-            nitem["action"] = "create"  # permet d'indiquer création également dans iobeya
-            context.get("iobeya_diff").append(nitem)
+    epic_Name = None
 
-    # NOTE : Pour se rappeller >> si synchronisation est bidirectionnelle elle doit également tenir compte des updates entre les deux systèmes iobeya et github... ( lancer une deuximère synchronisation après la création des éléments manquants ? )
+    id_Epic = wrapper.get("id_Epic") or wrapper.get("epic_id")
+    grist_epics = wrapper.get("grist_epics")   
+    grist_epics = _ensure_list(grist_epics)
+    the_epic = find_item_by_id(grist_epics, id_Epic, "id")
+
+    if the_epic is None:
+        logger.warning("❌ Aucun Epic sélectionné (id_Epic/epic_id absent du contexte).")
+        return []
+    
+    epic_Name = the_epic.get("name") if isinstance(the_epic, dict) else None
+    epic_id = the_epic.get("id_epic") if isinstance(the_epic, dict) else None
+
+    #rename_deleted = context.get("rename_deleted", False)
+    #force_overwrite = context.get("force_overwrite", False)    
+
+    # initialisations
+    created = []
+    combined_diffs = []
+
+    # on compile les id numériques max déjà utilisés par type d'objet dans grist (par epic / pi num)
+    # (on calcule à partir des objets déjà présents dans Grist)
+    max_ids = _compute_max_id_by_type(grist_objects, pi_num=pi_Num)
+
+    # Fusion des diffs iObeya et GitHub pour créer les onjets manquants dans Grist
+
+    for item in wrapper.get("iobeya_diff", []):
+        if item.get("action") == "not_present":
+            # ici il faut recupérer l'objet complet depuis la source ( on ignore l'id car vide )
+            Nom = item.get("Nom")
+            type = item.get("type")
+            obj = _find_item(iobeya_objects, Nom, type)
+            if not obj:
+                logger.warning(f"⚠️ Objet iObeya introuvable pour création (Nom={Nom}, type={type}).")
+                continue
+            obj["source"] = "iobeya"
+            combined_diffs.append(obj)
+
+    for item in wrapper.get("github_diff", []):
+        if item.get("action") == "not_present":
+            # ici il faut recupérer l'objet complet depuis la source ( on ignore l'id car vide )
+            Nom = item.get("Nom")
+            type = item.get("type")
+            obj = _find_item(github_objects, Nom, type)
+            if not obj:
+                logger.warning(f"⚠️ Objet GitHub introuvable pour création (Nom={Nom}, type={type}).")
+                continue
+            obj["source"] = "github"
+            combined_diffs.append(obj)
 
     logger.info(f"🧩 {len(combined_diffs)} features à créer dans Grist (not_present).")
 
-    for feat in combined_diffs:
-        name = feat.get("Nom_Feature", "Sans titre")
-        description = feat.get("Description", "")
-        state = feat.get("Etat", "open")
-        type_feature = feat.get("Type", "Feature")
-        gains = feat.get("Gains", 0)
-        commentaires = feat.get("Commentaires", "")
-        extra = feat.get("extra")
-        id_epic = feat.get("id_Epic")
-        id_feature = feat.get("id_feature") or feat.get("id_Feature") or f"FPX-{random.randint(1000, 9999)}"    
-        id_num = (lambda v: int(v.split('-')[-1]) if '-' in v and v.split('-')[-1].isdigit() else random.randint(1000, 9999))(str(id_feature))
+    # Création des objets manquants dans Grist
+    # l'id_epic est implicite au contexte de la synchro 
+    # La syntaxe des variables utilisé ici est volontairement identique de celle utilisée des objets dans Grist y/c la casse
+     
+    for object in combined_diffs:
 
-        # Extraction du numéro de PI (valeur entre les lettres 'FP' et le tiret '-')
-        match_pi = re.search(r'FP(\d+)-', str(id_feature))
-        
-        # récupère le pi_num dans le contexte de la session si disponible
-        pi_num_context = 0
-        session_data = context.get("session_data", {})
-        if session_data:
-            pi_num_context = session_data.get("pi_num", 0)
-            
-        # récupère le pi_num dans le contexte de num de la feature si disponible
+        # valeurs obligatoires / communes
+        type = object.get("type", "Features")  # le type est également le nom de la table Grist
+        Nom = object.get("Nom", "Sans titre")
+        Description = object.get("Description", "")
+        timestamp = object.get("timestamp", datetime.now().timestamp())
+        source = object.get("source", "∅")
 
-        if match_pi:
-            pi_num = int(match_pi.group(1))
-        else:
-            try:
-                pi_num = int(pi_num_context)# si pas de match, utilise le contexte
-            except (ValueError, TypeError):
-                pi_num = 0 # valeur par défaut si tout échoue
-                
-        logger.info(f"🔢 PI_num déterminé : {pi_num} pour feature {id_feature}")
-        
-        # 🔍 Recherche de l'ID interne de l'Epic correspondant à l'id_Epic
-        epics_list = get_grist_epics(api_url, doc_id, api_token, "Epics")
-        matching_epic = None
-        if id_epic:
-            for epic in epics_list:
-                if str(epic.get("id_epic")) == str(id_epic):
-                    matching_epic = epic
-                    break
+        # valeurs optionnelles
+        Hypotheses_de_gain = object.get("hypothese", None)
+        Criteres_d_acceptation = object.get("acception", None)
+        Commited = object.get("Commited", None)
 
-        if matching_epic:
-            id_epic_internal = matching_epic.get("id")
-            logger.info(f"🔗 Epic trouvé : id_epic={id_epic} → id interne={id_epic_internal}")
-        else:
-            id_epic_internal = None
-            logger.info(f"⚠️ Aucun Epic trouvé avec id_Epic={id_epic}, la feature sera créée sans lien Epic.")
-                    
-        result = create_grist_feature(
+        # calcul de l'identifiant numérique de l'objet à créer (on prend la valeur max + 1)
+        next_id = int(max_ids.get(type, 0)) + 1
+        max_ids[type] = next_id
+        id_Num = next_id
+
+        result = grist_create_object(
             base_url=api_url,
             doc_id=doc_id,
             api_key=api_token,
-            table_name=table_name,
-            name=name,
-            description=description,
-            state=state,
-            type_feature=type_feature,
-            gains=gains,
-            commentaires=commentaires,
-            extra=extra,
-            id_epic=id_epic_internal,
-            id_feature=id_num,
-            pi_num=pi_num
+            type=type,
+            Epic=epic_Name,
+            pi_Num=pi_Num,
+            id_Num=id_Num,
+            timestamp=timestamp,
+            Nom=Nom,
+            Description=Description,
+            Hypotheses_de_gain=Hypotheses_de_gain,
+            Criteres_d_acceptation=Criteres_d_acceptation,
+            Commentaires=f"Créé via synchronisation depuis {source}, le {datetime.now().strftime('%Y-%m-%d')}",
+            Commited=Commited
         )
 
         if result:
@@ -366,129 +422,61 @@ def grist_create_epic_objects(grist_conf, context):
 
 # fonction pour créer une feature dans Grist
 
-def create_grist_feature(
-    base_url,
-    doc_id,
-    api_key,
-    table_name="Features",
-    name="Nouvelle feature",
-    description="Description par défaut",
-    state="open",
-    type_feature="Story",
-    gains=0,
-    commentaires="Aucun commentaire",
-    extra=None,
-    id_epic=None,
-    id_feature=None,
-    pi_num=None,
-    **kwargs
+def grist_create_object(
+    base_url, doc_id, api_key, 
+    type, Epic, pi_Num , id_Num, timestamp ,
+    Nom , Description ,
+    Hypotheses_de_gain , Criteres_d_acceptation ,
+    Commentaires, Commited
 ):
-    """
-    Crée un élément dans la table 'Features' de Grist.
-    Tous les champs sont optionnels avec des valeurs par défaut.
-    """
+
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
 
-# 
-#$id2 = il faut parser et extraire le numéro de la feature
-#$id_Epic = un identifiant numérique et pas identifiatnt de type E-XX
+    # Construction des champs en filtrant les valeurs None / vides
+    fields = {
+        "Epic": Epic,            
+        "pi_Num": pi_Num,
+        "id_Num": id_Num,
+        "Nom": Nom,
+        "Description": Description,
+        "Hypothese_de_gain": Hypotheses_de_gain,
+        "Commentaires": Commentaires,
+        "Criteres_d_acceptation": Criteres_d_acceptation,
+        "Commited": Commited,
+        "timestamp": timestamp,
+    }
+
+    # Supprime les champs None, vides ou chaînes vides
+    fields = {
+        k: v
+        for k, v in fields.items()
+        if v is not None and not (isinstance(v, str) and v.strip() == "")
+    }
 
     payload = {
         "records": [
             {
-            "fields": {
-                #"uid": str(uuid.uuid4()),
-                "Nom_Feature": name,
-                "Description": description,
-                "Hypothese_de_gain": gains,
-                "Commentaires": commentaires,
-                "id2": id_feature,
-                "id_Epic": id_epic,
-                "PI_Num": pi_num,                
-                }
+                "fields": fields
             }
         ]
     }
 
-    url = f"{base_url}/api/docs/{doc_id}/tables/{table_name}/records"
+    url = f"{base_url}/api/docs/{doc_id}/tables/{type}/records"
     url = url.replace('://', '§§').replace('//', '/').replace('§§', '://')
 
     try:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-        logger.info(f"✅ Feature créée avec succès dans Grist : {data}")
+        logger.info(f"✅ objet créé avec succès dans Grist : {type} / {data}")
         return data
     
     except requests.exceptions.RequestException as e:
-        logger.warning(f"❌ Erreur lors de la création de la feature : {e}")
-        return None
-
-# Nouvelle fonction pour créer une feature dans Grist
-def create_grist_feature(
-    base_url,
-    doc_id,
-    api_key,
-    table_name="Features",
-    name="Nouvelle feature",
-    description="Description par défaut",
-    state="open",
-    type_feature="Story",
-    gains=0,
-    commentaires="Aucun commentaire",
-    extra=None,
-    id_epic=None,
-    id_feature=None,
-    pi_num=None,
-    **kwargs
-):
-    """
-    Crée un élément dans la table 'Features' de Grist.
-    Tous les champs sont optionnels avec des valeurs par défaut.
-    """
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-
-# 
-#$id2 = il faut parser et extraire le numéro de la feature
-#$id_Epic = un identifiant numérique et pas identifiatnt de type E-XX
-
-    payload = {
-        "records": [
-            {
-            "fields": {
-                #"uid": str(uuid.uuid4()),
-                "Nom_Feature": name,
-                "Description": description,
-                "Hypothese_de_gain": gains,
-                "Commentaires": commentaires,
-                "id2": id_feature,
-                "id_Epic": id_epic,
-                "PI_Num": pi_num,                
-                }
-            }
-        ]
-    }
-
-    url = f"{base_url}/api/docs/{doc_id}/tables/{table_name}/records"
-    url = url.replace('://', '§§').replace('//', '/').replace('§§', '://')
-
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        logger.info(f"✅ Feature créée avec succès dans Grist : {data}")
-        return data
-    
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"❌ Erreur lors de la création de la feature : {e}")
+        logger.warning(f"❌ Erreur lors de la création de l'objet {type} : {e}")
         return None
 
 def update_grist_feature(base_url, doc_id, api_key, record_id, table_name="Features", **kwargs):
@@ -561,12 +549,14 @@ def find_item_by_id(items, item_id, field="id"):
     Si aucun élément ne correspond, retourne None.
     Ajoute des logs détaillés pour le débogage.
     """
+    items = _ensure_list(items)
+    
     for idx, item in enumerate(items):
         value = item.get(field)
         if str(value) == str(item_id):
             return item
 
-    print(f"⚠️ Aucun élément trouvé avec {field} = {item_id}")
+    logger.warning(f"⚠️ Aucun élément trouvé avec {field} = {item_id}")
     return None
 
 ###  -- pour parser les timestamps
@@ -622,3 +612,111 @@ def _extract_last_update_epoch(rec):
         if ts is not None:
             return ts
     return None
+
+
+def _find_item(objects, name, type):
+    """Trouve un objet par nom et type.
+
+    Selon la source (Grist/iObeya/GitHub), la clé du nom peut être `Nom` ou `name`.
+    """
+    return next(
+        (
+            o
+            for o in objects
+            if (o.get("Nom") == name or o.get("name") == name)
+            and o.get("type") == type
+        ),
+        None,
+    )
+    
+    
+from collections import defaultdict
+
+def _compute_max_id_by_type(objects, id_field="id_Num", type_field="type", pi_field="pi_Num", pi_num=None):
+    """
+    Calcule le max id_Num par type.
+    Ignore les valeurs None, vides ou non numériques.
+    Retourne un dict: {type: max_id}
+    """
+    max_by_type = defaultdict(int)
+
+    for obj in objects:
+        obj_type = obj.get(type_field)
+        raw_id = obj.get(id_field)
+
+        if not obj_type or raw_id is None:
+            continue
+
+        # Optional filter by PI number (string/int safe compare)
+        if pi_num is not None:
+            obj_pi = obj.get(pi_field)
+            if obj_pi is None:
+                continue
+            if str(obj_pi).strip() != str(pi_num).strip():
+                continue
+
+        try:
+            id_num = int(str(raw_id).strip())
+        except (ValueError, TypeError):
+            continue
+
+        if id_num > max_by_type[obj_type]:
+            max_by_type[obj_type] = id_num
+
+    return dict(max_by_type)
+
+
+def _compute_global_max_id(objects, id_field="id_Num"):
+    """Calcule le max global de `id_field` sur l'ensemble des objets (tous types confondus).
+
+    Ignore les valeurs None, vides ou non numériques.
+    Retourne un int (0 si aucun id valide).
+    """
+    max_id = 0
+    for obj in objects:
+        raw_id = obj.get(id_field)
+        if raw_id is None:
+            continue
+        try:
+            id_num = int(str(raw_id).strip())
+        except (ValueError, TypeError):
+            continue
+        if id_num > max_id:
+            max_id = id_num
+    return max_id
+
+
+def _ensure_list(obj):
+    """Transforme au mieux un objet en liste."""
+    if obj is None:
+        return []
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, tuple):
+        return list(obj)
+
+    # dict qui contient une liste
+    if isinstance(obj, dict):
+        for k in ("records", "items", "data", "results"):
+            v = obj.get(k)
+            if isinstance(v, list):
+                return v
+        return []
+
+    # Flask Response
+    get_json = getattr(obj, "get_json", None)
+    if callable(get_json):
+        try:
+            return _ensure_list(get_json(silent=True))
+        except Exception:
+            return []
+
+    # requests.Response
+    json_fn = getattr(obj, "json", None)
+    if callable(json_fn):
+        try:
+            return _ensure_list(json_fn())
+        except Exception:
+            return []
+
+    return []

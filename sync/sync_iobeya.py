@@ -175,7 +175,7 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                                 "Nom": cleaned_text,
                                 "timestamp": item.get("modificationDate"),
                                 "id_Num": item_number,
-                                "Commited": "committed" if commitment == "committed" else "uncommitted",
+                                "Commited": "Committed" if commitment == "committed" else "Uncommitted",
                                 "pi_Num": pi_number,
                             }
                         objects.append(objectives)
@@ -231,6 +231,8 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
 
                 # si carte de type FeatureCard, récupére la liste des checklists filtrée sur les tâches non terminées
                 # on sait par défaut que sont des types features et que les hypothèses sont dans la checklist de type "hypothesis"
+                # TODO : gérer les autres types de checklist si besoin
+                
                 if clean_title:
                     lchecklist = l_card.get("checklist",[])
                     
@@ -247,7 +249,7 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                         "type": "Features",
                         "uid": l_card.get("id"),
                         "Nom": clean_title,
-                        "Description": appendchecklist,
+                        "Description": appendchecklist, # TODO dissocier hypotheses et critères d'acceptation vs description
                         "timestamp": l_card.get("modificationDate"),
                         "id_Num": item_id,
                         "pi_Num": pi_number,
@@ -277,7 +279,7 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                             "type": "Objectives",
                             "uid": l_card.get("id"),
                             "Nom": cleaned_text,
-                            "Commited": "committed" if detected_kind == "committed" else "uncommitted",
+                            "Commited": "Committed" if detected_kind == "committed" else "Uncommitted",
                             "timestamp": l_card.get("modificationDate"),
                             "id_Num": item_number,
                             "pi_Num": pi_number,

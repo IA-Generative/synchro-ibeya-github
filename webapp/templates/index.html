@@ -583,6 +583,7 @@
       }
       const body = {
         ...lastVerification,
+        epic_id: document.getElementById('epicSelect').value,
         iobeya_board_id,
         iobeya_container_id,
         iobeya_room_id,
@@ -608,6 +609,7 @@
       const iobeya_container_id = boardSelect.options[boardSelect.selectedIndex].dataset.containerId;
       const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
+      
       const pi = document.getElementById('piInput').value;
       if (!lastVerification) {
         alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
@@ -616,6 +618,7 @@
       if (!confirm("⚠️ Cette action synchronisera les features vers la destination (iObeya + GitHub). Continuer ?")) return;
       const body = {
         ...lastVerification,
+        epic_id: document.getElementById('epicSelect').value,
         iobeya_board_id,
         iobeya_container_id,
         iobeya_room_id,

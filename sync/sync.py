@@ -40,21 +40,38 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
             }
         context (dict): informations de synchronisation, ex:
             {
+                "grist_epics": "...",
+                "grist_objects" : [...],
+                "iobeya_objects": [...],
+                "github_objects": [...],
                 "github_diff": [...],
                 "iobeya_diff": [...],
                 "epics_list": [...],
-                "epic_id": "...",
+                "id_Epic": "...",  # id interne Grist de l'Epic sélectionné
                 "rename_deleted": True/False,
                 "force_overwrite": True/False,
-                "pi": ".."
+                "pi_num": ".."
             }
 
     Returns:
         dict: résultat de la synchronisation (succès, erreurs, statistiques, etc.)
     """
 
-    print("🚀 Démarrage de synchronize_all()")
-    print(f"PI : {context.get('pi')} | Force overwrite : {context.get('force_overwrite')}")
+    def _to_bool(v):
+        if isinstance(v, bool):
+            return v
+        if v is None:
+            return False
+        s = str(v).strip().lower()
+        return s in ("1", "true", "yes", "y", "on")
+
+    # Normalize flags that may arrive as strings from HTTP
+    context = context or {}
+    context["force_overwrite"] = _to_bool(context.get("force_overwrite"))
+    context["rename_deleted"] = _to_bool(context.get("rename_deleted"))
+
+    logger.info("🚀 Démarrage de synchronize_all()")
+    logger.info(f"PI : {context.get('pi_num')} | Force overwrite : {context.get('force_overwrite')}")
 
     result = {
         "status": "started",
@@ -64,29 +81,42 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
         "details": {}
     }
 
+    # Compatibility layer: some downstream functions expect a wrapper containing
+    # both the raw session data and top-level keys.
+    sync_context = {
+        **context,
+        "grist_conf": grist_conf,
+        "session_data": context,
+    }
+
+    # Back-compat: `sync_grist.grist_create_epic_objects` currently expects `g_list_epics` to be a dict
+    # with an internal Grist record id under the key "id".
+    if sync_context.get("g_list_epics") is None and context.get("id_Epic") is not None:
+        sync_context["g_list_epics"] = {"id": context.get("id_Epic")}
+
     try:
         # Étape 0 — Si force_overwrite est false on commence par créer les features manquantes dans grist
-        if not context.get("force_overwrite", False):
-            print("🔁 Création des features manquantes dans Grist...")
-            result["grist_synced"] = grist_create_epic_objects(grist_conf, context)
-            
+        if not sync_context.get("force_overwrite", False):
+            logger.info("🔁 Création des features manquantes dans Grist...")
+            result["grist_synced"] = grist_create_epic_objects(grist_conf, sync_context)
+
         # Étape 1 — Synchronisation Grist → iObeya
-        if context.get("force_overwrite", False):
-            print("🔁 Synchronisation Grist → iObeya en cours...")
-            result["iobeya_synced"] = iobeya_board_create_objects(iobeya_conf, context)
+        if sync_context.get("force_overwrite", False):
+            logger.info("🔁 Synchronisation Grist → iObeya en cours...")
+            result["iobeya_synced"] = iobeya_board_create_objects(iobeya_conf, sync_context)
 
         # Étape 2 — Synchronisation Grist → GitHub
-        print("🔁 Synchronisation Grist → GitHub en cours...")
+        logger.info("🔁 Synchronisation Grist → GitHub en cours...")
         # TODO: appel logique d’import / export ici
         result["github_synced"] = True
 
         result["status"] = "success"
-        print("✅ Synchronisation terminée avec succès.")
+        logger.info("✅ Synchronisation terminée avec succès.")
 
     except Exception as e:
         result["status"] = "error"
         result["error"] = str(e)
-        print(f"❌ Erreur dans synchronize_all : {e}")
+        logger.error(f"❌ Erreur dans synchronize_all : {e}")
 
     return result
 

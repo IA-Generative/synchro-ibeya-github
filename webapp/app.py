@@ -34,9 +34,9 @@ except ModuleNotFoundError:
                 if data is None:
                     data = {
                         "grist_doc_id": None,
-                        "grist": [],
-                        "iobeya": [],
-                        "github": [],
+                        "grist_objects": [],
+                        "iobeya_objects": [],
+                        "github_objects": [],
                         "iobeya_diff": [],
                         "github_diff": [],
                     }
@@ -394,37 +394,45 @@ def verify():
     # récupérer les objets depuis grist
     
     try:
+        grist_epics = grist_get_epics(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN )       
+        session_data["grist_epics"] = jsonify(grist_epics)
+        app.logger.info(f" >> ✅ {len(session_data['grist_epics'])} épics récupérés depuis Grist (app.py).")
+    except Exception as e:
+        app.logger.error(f"❌ Erreur lors de la récupération de la liste des EPics de Grist : {e}")
+        session_data["grist_objects"].clear()   
+        
+    try:
         epic_obj = grist_get_epic(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, epic )       
         df = grist_get_epic_objects(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN, epic, pi or 0)
-        session_data["grist"] = df_to_records_jsonsafe(df)
-        app.logger.info(f" >> ✅ {len(session_data['grist'])} objets récupérées depuis Grist (app.py).")
+        session_data["grist_objects"] = df_to_records_jsonsafe(df)
+        app.logger.info(f" >> ✅ {len(session_data['grist_objects'])} objets récupérées depuis Grist (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features Grist : {e}")
-        session_data["grist"].clear()
-
+        session_data["grist_objects"].clear()
+        
     # récupérer les objets depuis iObeya
     try:
         df = iobeya_get_board_objects(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN, IOBEYA_TYPES_CARD_FEATURES)
-        session_data["iobeya"] = df_to_records_jsonsafe(df)
-        app.logger.info(f" >>✅ {len(session_data['iobeya'])} objets récupérées depuis iObeya (app.py).")
+        session_data["iobeya_objects"] = df_to_records_jsonsafe(df)
+        app.logger.info(f" >>✅ {len(session_data['iobeya_objects'])} objets récupérées depuis iObeya (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features iobeya : {e}")
-        session_data["iobeya"].clear()
-
+        session_data["iobeya_objects"].clear()
+        
     # récupérer les objets depuis GitHub
     try:
         # `GITHUB_TOKEN_ENV_VAR` contient le nom de la variable d'environnement (ex: "GITHUB_TOKEN")
         github_objects = github_get_project_objects(github_project_id, GITHUB_TOKEN_ENV_VAR)
         if isinstance(github_objects, list):
-            session_data["github"] = _json_safe(github_objects)
+            session_data["github_objects"] = _json_safe(github_objects)
         else:
             # Compat: si la fonction renvoie un DataFrame à l'avenir
             df = github_objects
-            session_data["github"] = df_to_records_jsonsafe(df)
-        app.logger.info(f" >>✅ {len(session_data['github'])} objets récupérés depuis GitHub (app.py).")  
+            session_data["github_objects"] = df_to_records_jsonsafe(df)
+        app.logger.info(f" >>✅ {len(session_data['github_objects'])} objets récupérés depuis GitHub (app.py).")  
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des objets GitHub : {e}")
-        session_data["github"].clear()
+        session_data["github_objects"].clear()
 
     # récupérer les diffs
     
@@ -437,16 +445,16 @@ def verify():
 
         # Calcul des diffs iObeya et GitHub vs grist
         session_data["iobeya_diff"] = compute_diff(
-            session_data["grist"],
-            session_data["iobeya"],
+            session_data["grist_objects"],
+            session_data["iobeya_objects"],
             rename_deleted,
             epic_obj,
             allowed_types=IOBEYA_ALLOWED_OBJECT_TYPES,
         )
         app.logger.info(f"✅ {len(session_data['iobeya_diff'])} différences récupérées depuis iObeya (app.py).")
         session_data["github_diff"] = compute_diff(
-            session_data["grist"],
-            session_data["github"],
+            session_data["grist_objects"],
+            session_data["github_objects"],
             rename_deleted,
             epic_obj,
             allowed_types=GITHUB_ALLOWED_OBJECT_TYPES,
@@ -460,9 +468,9 @@ def verify():
     session_store.set(session_id, session_data)
 
     return jsonify({
-        "grist": _json_safe(session_data["grist"]),
-        "iobeya": _json_safe(session_data["iobeya"]),
-        "github": _json_safe(session_data["github"]),
+        "grist": _json_safe(session_data["grist_objects"]),
+        "iobeya": _json_safe(session_data["iobeya_objects"]),
+        "github": _json_safe(session_data["github_objects"]),
         "iobeya_diff": _json_safe(session_data["iobeya_diff"]),
         "github_diff": _json_safe(session_data["github_diff"])
     })
@@ -475,6 +483,7 @@ def sync():
         return jsonify({"error": "Session non trouvée ou invalide"}), 400
     session_id, session_data = session_store.get_or_create_session(session_id)
     grist_doc_id = session_data.get("grist_doc_id") or GRIST_DOC_ID
+    
     # ⚠️ Fallback au GRIST_DOC_ID par défaut si aucune session active n'a été trouvée
     if grist_doc_id == GRIST_DOC_ID:
         app.logger.warning("⚠️ Aucun doc_id actif trouvé en session. Utilisation du GRIST_DOC_ID par défaut.")
@@ -486,7 +495,8 @@ def sync():
         iobeya_container_id = data.get("iobeya_container_id")
         iobeya_room_id = data.get("iobeya_room_id")
         github_project_id = data.get("github_project_id")
-        epic_id = data.get("epic_id")
+        # Compat: le front envoie historiquement `epic` (id de l'epic). On accepte aussi `epic_id`.
+        epic_id = data.get("epic_id") or data.get("epic")
         rename_deleted = data.get("rename_deleted")
         force_overwrite = data.get("force_overwrite")
         pi = data.get("pi")
@@ -532,11 +542,13 @@ def sync():
     session_data["grist_doc_id"] = data.get("doc_id") if request.method == "POST" and data.get("doc_id") else grist_doc_id
 
     # Update sync_context with parameters from request
-    session_data["epic_id"] = epic_id
+    # Récupération de l'id interne de l'epic sélectionné    
+    
+    session_data["id_Epic"] = epic_id
     session_data["rename_deleted"] = rename_deleted
     session_data["force_overwrite"] = force_overwrite
-    session_data["pi"] = pi
-
+    session_data["pi_num"] = pi
+    
     # Appel effectif à synchronize_all avec les dictionnaires de paramètres
     result = synchronize_all(
         grist_params,
@@ -555,7 +567,6 @@ def sync():
         "pi": pi,
         "result": result
     })
-
 
 
 # --- Lancement de l'application ---

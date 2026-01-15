@@ -381,8 +381,8 @@ def grist_create_epic_objects(grist_conf, context):
         source = object.get("source", "∅")
 
         # valeurs optionnelles
-        Hypotheses_de_gain = object.get("hypothese", None)
-        Criteres_d_acceptation = object.get("acception", None)
+        Hypotheses_de_gain = object.get("Hypotheses_de_gain", None)
+        Criteres_d_acceptation = object.get("Criteres_d_acceptation", None)
         Commited = object.get("Commited", None)
 
         # calcul de l'identifiant numérique de l'objet à créer (on prend la valeur max + 1)
@@ -443,7 +443,7 @@ def grist_create_object(
         "id_Num": id_Num,
         "Nom": Nom,
         "Description": Description,
-        "Hypothese_de_gain": Hypotheses_de_gain,
+        "Hypotheses_de_gain": Hypotheses_de_gain,
         "Commentaires": Commentaires,
         "Criteres_d_acceptation": Criteres_d_acceptation,
         "Commited": Commited,

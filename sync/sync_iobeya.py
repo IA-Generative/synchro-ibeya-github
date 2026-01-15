@@ -9,6 +9,7 @@ import yaml
 from datetime import datetime, timezone
 import logging
 import json
+import uuid
 
 # --- Import des fonctions utilitaires ---
 
@@ -100,9 +101,8 @@ def iobeya_get_boards(room_id):
                 board =  {
                     "id": id,
                     "name": name,
-                    "containerId": (
-                        b.get("container", {}).get("id")
-                        if isinstance(b.get("container"), dict)
+                    "container": (
+                        b.get("elementContainer") if isinstance(b.get("elementContainer"), dict)
                         else None
                     )
                  }
@@ -140,7 +140,7 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
         
         
                 # --- Debug: break early on a specific object id (useful to isolate problematic payloads)
-        BREAK_ON_OBJECT_ID = "a946ce26-86a4-4dd8-bf94-72a774f798f2"
+        BREAK_ON_OBJECT_ID = "2CF60A73-E9C2-2B37-813A-C17D15CDED02"
 
         # Filtrage des cartes selon le type spécifié
         filtered_cards = []
@@ -208,24 +208,23 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
         ## Parcours des cartes filtrées pour extraire les informations pertinentes
         
         for l_card in filtered_cards:
+            # --- Debug: log raw card payload (can be verbose)
+            try:
+                logger.debug("🧾 l_card raw payload:\n%s", json.dumps(l_card, indent=2, ensure_ascii=False))
+            except Exception as e:
+                logger.debug("🧾 l_card raw payload: <unserializable> (%s)", e)
             
             featuretypeflag = False
             # Todo use "props" pour determiner automatiquement le type de card ?
             # pour l'instant si card feature > traitement particulier sinon on regarde juste le contenu du titre
             
-            l_entity_type = l_card.get("entityType", "")
-            appendchecklist = ""
- 
-            # Log complet uniquement pour les FeatureCards
-            if l_entity_type == "FeatureCard":           
-                for type_feature in type_features_card_list:
-                    if l_entity_type == type_feature:
-                        featuretypeflag = True
-                    break
-                
+            l_entity_type = l_card.get("entityType", "") 
             l_props= l_card.get("props", {})
+            
+            list_hypothesis = ""
+            list_criterias = ""
 
-            if featuretypeflag == "FeatureCard" and l_props and isinstance(l_props, dict):
+            if l_entity_type == "FeatureCard" and l_props and isinstance(l_props, dict):
                 
                 clean_title, pi_number, item_id = extract_feature_id_and_clean(l_props.get("title"))
 
@@ -241,19 +240,29 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                         if kind == "hypothesis":   
                             label = lchcklst.get("label", "")
                             if label:
-                                if appendchecklist:
-                                    appendchecklist += "\n"  # ajoute un retour chariot avant si ce n’est pas le premier
-                                appendchecklist += label
+                                if list_hypothesis:
+                                    list_hypothesis += "\n"  # ajoute un retour chariot avant si ce n’est pas le premier
+                                list_hypothesis += label
+                        if  kind == "criteria":   
+                            label = lchcklst.get("label", "")
+                            if label:
+                                if list_criterias:
+                                    list_criterias += "\n"  # ajoute un retour chariot avant si ce n’est pas le premier
+                                list_criterias += label                  
                     
                     feature = {
                         "type": "Features",
                         "uid": l_card.get("id"),
                         "Nom": clean_title,
-                        "Description": appendchecklist, # TODO dissocier hypotheses et critères d'acceptation vs description
+                        "Description": clean_title,
+                        "Hypotheses_de_gain": list_hypothesis,
+                        "Criteres_d_acceptation" : list_criterias,
                         "timestamp": l_card.get("modificationDate"),
                         "id_Num": item_id,
                         "pi_Num": pi_number,
                     }
+                    
+                    objects.append(feature)
                     
             else : # si carte d’un autre type que FeatureCard
 
@@ -302,23 +311,31 @@ def iobeya_board_create_objects(iobeya_conf, context):
     board_id = iobeya_conf.get("board_id")
     api_key = iobeya_conf.get("api_token")
     room_id= iobeya_conf.get("room_id")
-    container_id= iobeya_conf.get("container_id")
-    
-    created = []
-    for item in context.get("iobeya_diff", []):
-        if item.get("action") == "create":
-            feature = item.get("feature")
-            if feature:
-                x_pos, y_pos = get_next_card_position()
-                result = iobeya_create_feature_card(base_url, room_id, board_id, container_id, api_key, feature, x=x_pos, y=y_pos)
-                if result:
-                    created.append(result)
+    container = iobeya_conf.get("iobeya_board_container")
 
-    print(f"🟦 {len(created)} cards créées dans iObeya.")
-    return created
+    try:
+        created = []
+        zorder = 100  # ordre d'empilement initial
+        for item in context.get("iobeya_diff", []):
+            if item.get("action") == "create":
+                feature_name = item.get("Nom")
+                # recupère l'objet feature complet depuis le grist_objects
+                feature = next((f for f in context.get("grist_objects", []) if f.get("Nom") == feature_name and f.get("type") == "Features"), None)
+                
+                if feature:
+                    x_pos, y_pos = get_next_card_position()
+                    result = iobeya_create_feature_card(base_url, room_id, board_id, container, api_key, feature, x=x_pos, y=y_pos, zorder=zorder)
+                    if result:
+                        created.append(result)
+                        zorder -= 1
 
+        print(f"🟦 {len(created)} cards créées dans iObeya.")
+        return created
+    except Exception as e:
+        logger.error(f"❌ Erreur lors de la création des cards iObeya : {e}", exc_info=True)
+        return None
 
-def iobeya_create_feature_card(base_url, room_id, board_id, container_id, api_key, feature, x=300, y=300):
+def iobeya_create_feature_card(base_url, room_id, board_id, container, api_key, feature, x=300, y=300, zorder=1):
     """
     Crée une FeatureCard iObeya avec une structure complète
     conforme au modèle constaté sur l'API iObeya.
@@ -331,36 +348,70 @@ def iobeya_create_feature_card(base_url, room_id, board_id, container_id, api_ke
     }
 
     # Extraction des champs
-    title = feature.get("Nom_Feature", "Sans titre")
+    title = feature.get("Nom", "Sans titre")
     description = feature.get("Description", "")
-    id_feature = feature.get("id_feature")
+    id_feature = feature.get("id_Num")
+    pi_number = feature.get("pi_Num", "")
 
-    # Nom affiché dans la carte
-    card_title = f"[{id_feature}] : {title}" if id_feature else title
+    # créer la checklist avec hypothèses et critères
+    hypothesis = feature.get("Hypotheses_de_gain", "")
+    criterias = feature.get("Criteres_d_acceptation", "")       
+
+    checklist = [] 
+    hypothesis = feature.get("Hypotheses_de_gain", "")  
+    criterias = feature.get("Criteres_d_acceptation", "")
+    
+    index = 0   
+    for line in hypothesis.splitlines():
+        if line.strip():
+            checklist.append({
+                "@class": "com.iobeya.dto.ChecklistItemDTO",
+                "isReadOnly": False,
+                "label": line.strip(),
+                "status": None,
+                "index": index,
+                "kind": "hypothesis"
+            })
+            index += 1
+    
+    index = 0     
+            
+    for line in criterias.splitlines():
+        if line.strip():
+            checklist.append({
+                "@class": "com.iobeya.dto.ChecklistItemDTO",
+                "isReadOnly": False,
+                "label": line.strip(),
+                "status": None,
+                "index": index,
+                "kind": "criteria"
+            })
+            index += 1
+            
+    # Nom affiché dans la carte @ uuid de la carte. Généré aléatoirement ici.
+    card_title = f"[FP{pi_number}-{id_feature}] : {title}" if id_feature else f"[Feat]: {title}"
+    uuid_id=uuid.uuid4() # action : creer un uuid pour l'id de la card
 
     payload = {
         "@class": "com.iobeya.dto.BoardCardDTO",
-        #"id": None,
-        "name": card_title,
-        "entityType": "FeatureCard",
-        "setName": "Cartes feature",
-        "x": x,
-        "y": y,
-        "width": 380,
-        "height": 300,
-        "zOrder": 10,
+        "isReadOnly": False,
+        "id": str(uuid_id),
         "isAnchored": False,
         "isLocked": False,
+        "x": x,
+        "y": y,
+        "width": 379,
+        "height": 297,
+        "zOrder": zorder,
         "color": 10141941,
-        "boardId": board_id,
-        "roomId": room_id,
+        "entityType": "FeatureCard",
+        "name": "Carte Feature",
+        "setName": "Cartes feature",
         "fontFamily": "arial",
-        "container": {
-            "@class": "com.iobeya.dto.EntityReferenceDTO",
-            "isReadOnly": False,
-            "id": board_id,   #container_id,
-            "type": "BlankBoardElementContainer"
-        },
+        "linkLabel": "",
+        "linkUrl": "",
+        "assignees": [],
+        "container":  container, # nécessaire pour créer la carte dans le bon panneau
         "props": {
             "title": card_title,
             "description": description or "",
@@ -378,42 +429,78 @@ def iobeya_create_feature_card(base_url, room_id, board_id, container_id, api_ke
                 "wSJFHasContent": False
             }
         },
-        "checklist": []
+        "checklist": checklist
     }
-
 
     ##url = f"{base_url}/s/j/boards/{board_id}/cards"
     url = f"{base_url}/s/j/elements"
     payload = [payload] #iboeya API expects a list of elements
     
     try:
-        print("📤 Payload envoyé à iObeya :", json.dumps(payload, indent=2, ensure_ascii=False))
+        #logger.info("📤 Payload envoyé à iObeya : %s", json.dumps(payload, indent=2, ensure_ascii=False))
         response = requests.post(url, headers=headers, json=payload, timeout=10)
         response.raise_for_status()
         data = response.json()
-        print(f"🟦 FeatureCard créée dans iObeya : {data.get('id')} ({card_title})")
+        logger.info("🟦 FeatureCard créée dans iObeya : %s (%s)", uuid_id, card_title)
         return data
     except requests.RequestException as e:
-        print(f"❌ Erreur lors de la création d'une FeatureCard iObeya : {e}")
+        logger.warning("❌ Erreur lors de la création d'une FeatureCard iObeya : %s", e)
         return None
 
 # --- Placement paramétrable en quinconce ---
-PLACEMENT = {
-    "start_x": 20,
-    "start_y": 1656,
-    "offset_x": 420,
-    "offset_y": 402,
-    "workspace_width": 6187
+
+# --- Placement paramétrable en quinconce (stagger) ---
+
+PLACEMENT = {  # positionnement dans le rectangle de travail "Features backlog"
+    "start_x": 5120,
+    "start_y": 2520,
+    "offset_x": 80,
+    "offset_y": 80,
+    "stagger_x": 80,          # quinconce: décale une ligne sur deux de 50px vers la droite
+    "workspace_width": 2240,  # largeur de la zone de travail (px)
+    "workspace_height":  541 # hauteur de la zone de travail (px) -> ajuste selon ta board
 }
-_next_x = PLACEMENT["start_x"]
-_next_y = PLACEMENT["start_y"]
+
+# Indices de placement (colonne/ligne) : on remplit VERTICALEMENT puis on passe à la colonne suivante.
+_col_idx = 0
+_row_idx = 0
+
 
 def get_next_card_position():
-    global _next_x, _next_y
-    _next_x += PLACEMENT["offset_x"]
+    """Retourne (x, y) pour la prochaine carte.
 
-    if _next_x > PLACEMENT["workspace_width"]:
-        _next_x = PLACEMENT["start_x"]
-        _next_y += PLACEMENT["offset_y"]
+    - Placement en colonnes: on incrémente Y à chaque carte.
+    - Quand on atteint le bas de la zone (bottom), on repart à start_y et on décale X.
+    - Quinconce: une ligne sur deux est décalée à droite de `stagger_x`.
+    """
+    global _col_idx, _row_idx
 
-    return _next_x, _next_y
+    start_x = PLACEMENT["start_x"]
+    start_y = PLACEMENT["start_y"]
+    offset_x = PLACEMENT["offset_x"]
+    offset_y = PLACEMENT["offset_y"]
+    stagger_x = PLACEMENT.get("stagger_x", 0)
+    workspace_width = PLACEMENT["workspace_width"]
+    workspace_height = PLACEMENT["workspace_height"]
+
+    max_x = start_x + workspace_width
+    max_y = start_y + workspace_height
+
+    # Calcul position courante (avant incrément)
+    x = start_x + (_col_idx * offset_x) + ((_row_idx % 2) * stagger_x)
+    y = start_y + (_row_idx * offset_y)
+
+    # Prépare l'index suivant
+    _row_idx += 1
+
+    # Si la prochaine ligne dépasserait le bas, on repart en haut et on passe à la colonne suivante
+    if (start_y + (_row_idx * offset_y)) > max_y:
+        _row_idx = 0
+        _col_idx += 1
+
+    # Si on dépasse la largeur, on revient au début (fallback)
+    if (start_x + (_col_idx * offset_x)) > max_x:
+        _col_idx = 0
+        _row_idx = 0
+
+    return x, y

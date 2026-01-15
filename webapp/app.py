@@ -363,8 +363,6 @@ def verify():
         if doc_id_param:
             grist_doc_id = doc_id_param
         iobeya_board_id = data.get("iobeya_board_id", None)
-        #iobeya_container_id = data.get("iobeya_container_id", None)
-        #iobeya_room_id = data.get("iobeya_room_id", None)
         github_project_id = data.get("github_project_id")
         pi = data.get("pi")
         epic = data.get("epic")
@@ -376,8 +374,6 @@ def verify():
         if doc_id_param:
             grist_doc_id = doc_id_param
         iobeya_board_id = request.args.get("iobeya_board_id", default_iobeya_board_id)
-        #iobeya_container_id = request.args.get("iobeya_container_id", None)
-        #iobeya_room_id = request.args.get("iobeya_room_id", None)  
         github_project_id = request.args.get("github_project_id")
         pi = request.args.get("pi")
         epic = request.args.get("epic")
@@ -390,7 +386,7 @@ def verify():
 
     # session_id et session_data déjà récupérés plus haut
     session_data["grist_doc_id"] = grist_doc_id
-
+    
     # récupérer les objets depuis grist
     
     try:
@@ -492,7 +488,7 @@ def sync():
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
         iobeya_board_id = data.get("iobeya_board_id")
-        iobeya_container_id = data.get("iobeya_container_id")
+        iobeya_board_container = data.get("iobeya_board_container") # important pour créer l'objet dans un panneau
         iobeya_room_id = data.get("iobeya_room_id")
         github_project_id = data.get("github_project_id")
         # Compat: le front envoie historiquement `epic` (id de l'epic). On accepte aussi `epic_id`.
@@ -502,7 +498,7 @@ def sync():
         pi = data.get("pi")
     else:
         iobeya_board_id = request.args.get("iobeya_board_id")
-        iobeya_container_id = request.args.get("iobeya_container_id")
+        iobeya_board_container = request.args.get("iobeya_board_container")  # important pour créer l'objet dans un panneau
         iobeya_room_id = request.args.get("iobeya_room_id")
         github_project_id = request.args.get("github_project_id")
         epic_id = request.args.get("epic_id")
@@ -528,7 +524,7 @@ def sync():
     iobeya_params = {
         "api_url": IOBEYA_API_URL,
         "board_id": iobeya_board_id,
-        "container_id": iobeya_container_id,
+        "iobeya_board_container": iobeya_board_container,
         "room_id": iobeya_room_id,
         "api_token": IOBEYA_API_TOKEN
     }

@@ -335,6 +335,7 @@
         if (!res.ok) throw new Error(`Erreur HTTP ${res.status}`);
         const data = await res.json();
         boardSelect.innerHTML = '';
+
         if (!Array.isArray(data) || data.length === 0) {
           const opt = document.createElement('option');
           opt.textContent = '(Aucun board disponible)';
@@ -342,11 +343,12 @@
           boardSelect.appendChild(opt);
           return;
         }
+        
         for (const board of data) {
           const option = document.createElement('option');
           option.value = board.id;
           option.textContent = board.name || '(Sans nom)';
-          option.dataset.containerId = board.containerId || "";
+          option.dataset.container = JSON.stringify(board.container) || "";
           boardSelect.appendChild(option);
         }
       } catch (err) {
@@ -466,8 +468,8 @@
 
       const boardSelect = document.getElementById('boardSelect');
       const iobeya_board_id = boardSelect.value;
-      const iobeya_container_id =
-        boardSelect.options[boardSelect.selectedIndex].dataset.containerId;
+      const iobeya_board_container =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
       const iobeya_room_id = document.getElementById('roomSelect').value;
 
       const body = {
@@ -477,7 +479,8 @@
         project: document.getElementById('githubSelect').value,
         rename_deleted: document.getElementById('delCheckbox').checked,
         iobeya_board_id,
-        iobeya_container_id,
+        iobeya_board_container,
+        iobeya_board_name: boardSelect.options[boardSelect.selectedIndex].textContent,
         iobeya_room_id,
         github_project_id: document.getElementById('githubSelect').value
       };
@@ -573,7 +576,9 @@
       const boardSelect = document.getElementById('boardSelect');
       const iobeya_board_id = boardSelect.value;
       const iobeya_room_id = document.getElementById('roomSelect').value;
-      const iobeya_container_id = boardSelect.options[boardSelect.selectedIndex].dataset.containerId;
+      const containerStr =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
+      const iobeya_board_container = JSON.parse(containerStr);
       const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
       const pi = document.getElementById('piInput').value;
@@ -585,7 +590,7 @@
         ...lastVerification,
         epic_id: document.getElementById('epicSelect').value,
         iobeya_board_id,
-        iobeya_container_id,
+        iobeya_board_container,
         iobeya_room_id,
         github_project_id,
         rename_deleted,
@@ -606,27 +611,32 @@
       const boardSelect = document.getElementById('boardSelect');
       const iobeya_board_id = boardSelect.value;
       const iobeya_room_id = document.getElementById('roomSelect').value;
-      const iobeya_container_id = boardSelect.options[boardSelect.selectedIndex].dataset.containerId;
+      const containerStr =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
+      const iobeya_board_container = JSON.parse(containerStr);
       const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
-      
       const pi = document.getElementById('piInput').value;
+
       if (!lastVerification) {
         alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
         return;
       }
+
       if (!confirm("⚠️ Cette action synchronisera les features vers la destination (iObeya + GitHub). Continuer ?")) return;
       const body = {
         ...lastVerification,
         epic_id: document.getElementById('epicSelect').value,
         iobeya_board_id,
-        iobeya_container_id,
+        iobeya_board_name: boardSelect.options[boardSelect.selectedIndex].textContent,
+        iobeya_board_container : iobeya_board_container,
         iobeya_room_id,
         github_project_id,
         rename_deleted,
         pi,
         force_overwrite: true
       };
+
       const res = await fetch('/sync', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},

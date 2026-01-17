@@ -2,16 +2,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Flask HTTPS app",
+            "name": "Flask Debug 8443",
             "type": "python",
             "request": "launch",
-            "module": "webapp.app",
+            "program": "webapp/app.py",
+            "args": [
+                "--dev"
+            ],
             "console": "integratedTerminal",
-            "justMyCode": false,
             "env": {
-                "FLASK_ENV": "development",
                 "FLASK_DEBUG": "1"
-            }
+            },
+            "justMyCode": false
         }
     ]
 }

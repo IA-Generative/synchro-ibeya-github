@@ -21,6 +21,9 @@ iobeya:
 github:
   project_id: "example_project_v2_node_id"
   token_env_var: "<put_here_github_token"
+  # Format: "organization/repo", create a generic repository for issues creation
+  # item in project should be linked to issue itself linked to a repository 
+  default_repo_full_name: "<organization>/<default_repository_name>"   # in case no specific repo is indicated in project
   organizations:
     - my-org-example
     - innovation-lab

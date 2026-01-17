@@ -4,10 +4,12 @@ import logging
 from sync.sync_grist import (
     grist_create_epic_objects
 )
+from sync.sync_github import (
+    github_project_board_create_objects
+)
 from sync.sync_iobeya import (
     iobeya_board_create_objects
 )
-
 
 # --- Activation et configuration des logs ---
 logging.basicConfig(
@@ -20,41 +22,15 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
     """
     Effectue la synchronisation complète entre Grist, iObeya et GitHub.
 
-    Args:
-        grist_conf (dict): paramètres Grist, ex:
-            {
-                "api_url": "...",
-                "doc_id": "...",
-                "api_token": "..."
-            }
-        iobeya_conf (dict): paramètres iObeya, ex:
-            {
-                "api_url": "...",
-                "board_id": "...",
-                "api_token": "..."
-            }
-        github_conf (dict): paramètres GitHub, ex:
-            {
-                "project_id": "...",
-                "token_env_var": "..."
-            }
-        context (dict): informations de synchronisation, ex:
-            {
-                "grist_epics": "...",
-                "grist_objects" : [...],
-                "iobeya_objects": [...],
-                "github_objects": [...],
-                "github_diff": [...],
-                "iobeya_diff": [...],
-                "epics_list": [...],
-                "id_Epic": "...",  # id interne Grist de l'Epic sélectionné
-                "rename_deleted": True/False,
-                "force_overwrite": True/False,
-                "pi_num": ".."
-            }
+    L’orchestration est pilotée par `context["action"]` (nouvelle logique UI) :
+      - "pullToGristBtn"  : iObeya/GitHub -> Grist (création des features manquantes dans Grist)
+      - "pushToIobeyaBtn" : Grist -> iObeya
+      - "pushToGithubBtn" : Grist -> GitHub (TODO placeholder)
 
-    Returns:
-        dict: résultat de la synchronisation (succès, erreurs, statistiques, etc.)
+    Rétro-compatibilité :
+      - Si `action` est absent, on retombe sur `force_overwrite` :
+          * force_overwrite == False => pullToGristBtn
+          * force_overwrite == True  => pushToIobeyaBtn
     """
 
     def _to_bool(v):
@@ -67,55 +43,77 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
 
     # Normalize flags that may arrive as strings from HTTP
     context = context or {}
-    context["force_overwrite"] = _to_bool(context.get("force_overwrite"))
-    context["rename_deleted"] = _to_bool(context.get("rename_deleted"))
+    force_overwrite = _to_bool(context.get("force_overwrite"))
+    rename_deleted = _to_bool(context.get("rename_deleted"))
+
+    action = str(context.get("action") or "").strip()
+    if not action:
+        action = "pullToGristBtn" if not force_overwrite else "pushToIobeyaBtn"
 
     logger.info("🚀 Démarrage de synchronize_all()")
-    logger.info(f"PI : {context.get('pi_num')} | Force overwrite : {context.get('force_overwrite')}")
+    logger.info(f"PI : {context.get('pi_num')} | Action : {action} | Force overwrite : {force_overwrite}")
 
     result = {
         "status": "started",
+        "action": action,
         "grist_synced": False,
         "iobeya_synced": False,
         "github_synced": False,
-        "details": {}
+        "details": {
+            "steps": [],
+            "started_at_utc": datetime.utcnow().isoformat() + "Z"
+        }
     }
+
+    # Build an isolated session snapshot (do not mutate caller dict in place)
+    session_snapshot = {**context, "force_overwrite": force_overwrite, "rename_deleted": rename_deleted, "action": action}
 
     # Compatibility layer: some downstream functions expect a wrapper containing
     # both the raw session data and top-level keys.
     sync_context = {
-        **context,
+        **session_snapshot,
+        "action": action,
+        "force_overwrite": force_overwrite,
+        "rename_deleted": rename_deleted,
         "grist_conf": grist_conf,
-        "session_data": context,
+        "session_data": session_snapshot,
     }
 
     # Back-compat: `sync_grist.grist_create_epic_objects` currently expects `g_list_epics` to be a dict
     # with an internal Grist record id under the key "id".
-    if sync_context.get("g_list_epics") is None and context.get("id_Epic") is not None:
-        sync_context["g_list_epics"] = {"id": context.get("id_Epic")}
+    if sync_context.get("g_list_epics") is None and session_snapshot.get("id_Epic") is not None:
+        sync_context["g_list_epics"] = {"id": session_snapshot.get("id_Epic")}
 
     try:
-        # Étape 0 — Si force_overwrite est false on commence par créer les features manquantes dans grist
-        if not sync_context.get("force_overwrite", False):
-            logger.info("🔁 Création des features manquantes dans Grist...")
-            result["grist_synced"] = grist_create_epic_objects(grist_conf, sync_context)
+        if action == "pullToGristBtn":
+            logger.info("🔁 Action: pullToGristBtn — création des features manquantes dans Grist...")
+            result["details"]["steps"].append("pullToGrist")
+            result["grist_synced"] = grist_create_epic_objects(grist_conf, iobeya_conf, github_conf, sync_context)
 
-        # Étape 1 — Synchronisation Grist → iObeya
-        if sync_context.get("force_overwrite", False):
-            logger.info("🔁 Synchronisation Grist → iObeya en cours...")
+        elif action == "pushToIobeyaBtn":
+            logger.info("🔁 Action: pushToIobeyaBtn — synchronisation Grist → iObeya...")
+            result["details"]["steps"].append("pushToIobeya")
             result["iobeya_synced"] = iobeya_board_create_objects(iobeya_conf, sync_context)
 
-        # Étape 2 — Synchronisation Grist → GitHub
-        logger.info("🔁 Synchronisation Grist → GitHub en cours...")
-        # TODO: appel logique d’import / export ici
-        result["github_synced"] = True
+        elif action == "pushToGithubBtn":
+            logger.info("🔁 Action: pushToGithubBtn — synchronisation Grist → GitHub (TODO placeholder)...")
+            result["details"]["steps"].append("pushToGithub")
+            result["github_synced"] = github_project_board_create_objects(github_conf, sync_context)
+
+            # TODO: implémenter l'appel réel d'export vers GitHub
+            result["github_synced"] = True
+
+        else:
+            raise ValueError(f"Unknown action: {action}")
 
         result["status"] = "success"
+        result["details"]["finished_at_utc"] = datetime.utcnow().isoformat() + "Z"
         logger.info("✅ Synchronisation terminée avec succès.")
 
     except Exception as e:
         result["status"] = "error"
         result["error"] = str(e)
+        result["details"]["finished_at_utc"] = datetime.utcnow().isoformat() + "Z"
         logger.error(f"❌ Erreur dans synchronize_all : {e}")
 
     return result

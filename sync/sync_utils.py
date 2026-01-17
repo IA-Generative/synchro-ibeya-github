@@ -12,7 +12,7 @@ def extract_id_and_clean_for_kind(text, kind=None):
     
     Rules (case-insensitive):
       - feature tag: [Feat] ; feature id: [FP<pi>-<item>]
-      - risk tag:    [Rsk]  ; risk id:    [RP<pi>-<item>]
+      - risk tag:    [Rsk] ou [Risk]  ; risk id:    [RP<pi>-<item>]
       - dep tag:     [DP]   ; dep id:     [DP<pi>-<item>]
       - tobj tag:    [TObj] ; tobj id:    [TObjP<pi>-<item>]
       - utobj tag:   [uTObj]; utobj id:   [uTObjP<pi>-<item>]
@@ -42,6 +42,8 @@ def extract_id_and_clean_for_kind(text, kind=None):
 
     tag_feat_re = re.compile(r"^feat$", re.IGNORECASE)
     tag_rsk_re = re.compile(r"^rsk$", re.IGNORECASE)
+    tag_risk_re = re.compile(r"^risk$", re.IGNORECASE)
+
     tag_dp_re = re.compile(r"^dp$", re.IGNORECASE)
     tag_dep_re = re.compile(r"^dep$", re.IGNORECASE)
     tag_tobj_re = re.compile(r"^tobj$", re.IGNORECASE)
@@ -119,7 +121,7 @@ def extract_id_and_clean_for_kind(text, kind=None):
             token_to_remove = m.group(0)
             break
 
-        if tag_rsk_re.match(token):
+        if tag_rsk_re.match(token) or tag_risk_re.match(token): 
             detected_kind = "Risques"
             token_to_remove = m.group(0)
             break

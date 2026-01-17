@@ -152,20 +152,29 @@
       box-shadow: none;
       pointer-events: none;
     }
-    #syncBtn {
+    #pullToGristBtn {
       background: #1976d2;
       color: #fff;
       margin-right: 8px;
     }
-    #syncBtn:hover {
+    #pullToGristBtn:hover {
       background: #115293;
     }
-    #overwriteBtn {
+    #pushToIobeyaBtn {
       background: #64b5f6; /* bleu clair */
       color: #fff;
       margin-right: 8px;
     }
-    #overwriteBtn:hover {
+    #pushToIobeyaBtn:hover {
+      background: #42a5f5; /* bleu clair un peu plus foncé au survol */
+    }
+
+    #pushToGithubBtn {
+      background: #64b5f6; /* bleu clair */
+      color: #fff;
+      margin-right: 8px;
+    }
+    #pushToGithubBtn:hover {
       background: #42a5f5; /* bleu clair un peu plus foncé au survol */
     }
     #verifyBtn {
@@ -314,9 +323,10 @@
     </small>
 
     <div style="margin: 1.5em 0 0.5em 0;">
-      <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button>
-      <button id="overwriteBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya/GitHub">Features Grist >> iObeya/GitHub</button>
-      <button id="syncBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">Récupère Grist << iObeya/GitHub</button>
+      <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button><br>
+      <button id="pullToGristBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">iObeya/GitHub >> Grist</button> </button>
+      <button id="pushToIobeyaBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya">Features Grist >> iObeya</button>
+      <button id="pushToGithubBtn" disabled title="Force la synchronisation dans le sens Grist vers GitHub">Features Grist >> GitHub</button>
     </div>
 
 <pre id="results"
@@ -463,8 +473,9 @@
     let lastVerification = null;
 
     async function runVerification() {
-      document.getElementById('syncBtn').disabled = true;
-      document.getElementById('overwriteBtn').disabled = true;
+      document.getElementById('pullToGristBtn').disabled = true;
+      document.getElementById('pushToIobeyaBtn').disabled = true;
+      document.getElementById('pushToGithubBtn').disabled = true;
 
       const boardSelect = document.getElementById('boardSelect');
       const iobeya_board_id = boardSelect.value;
@@ -551,8 +562,9 @@
       renderSection('modifications à faire dans iObeya', data.iobeya_diff);
       renderSection('modifications dans GitHub', data.github_diff);
 
-      document.getElementById('syncBtn').disabled = false;
-      document.getElementById('overwriteBtn').disabled = false;
+      document.getElementById('pullToGristBtn').disabled = false;
+      document.getElementById('pushToIobeyaBtn').disabled = false;
+      document.getElementById('pushToGithubBtn').disabled = false;
       const downloadBtn = document.getElementById('downloadJsonBtn');
       downloadBtn.disabled = false;
 
@@ -571,7 +583,7 @@
 
     document.getElementById('verifyBtn').onclick = runVerification;
 
-    document.getElementById('syncBtn').onclick = async () => {
+    document.getElementById('pullToGristBtn').onclick = async () => {
       // Récupérer les valeurs demandées
       const boardSelect = document.getElementById('boardSelect');
       const iobeya_board_id = boardSelect.value;
@@ -595,7 +607,8 @@
         github_project_id,
         rename_deleted,
         pi,
-        force_overwrite: false
+        force_overwrite: false,
+        action: "pullToGristBtn"
       };
       const res = await fetch('/sync', {
         method: 'POST',
@@ -606,7 +619,7 @@
       alert('Synchronisation terminée.');
     };
 
-    document.getElementById('overwriteBtn').onclick = async () => {
+    document.getElementById('pushToIobeyaBtn').onclick = async () => {
       // Récupérer les valeurs demandées
       const boardSelect = document.getElementById('boardSelect');
       const iobeya_board_id = boardSelect.value;
@@ -629,12 +642,54 @@
         epic_id: document.getElementById('epicSelect').value,
         iobeya_board_id,
         iobeya_board_name: boardSelect.options[boardSelect.selectedIndex].textContent,
-        iobeya_board_container : iobeya_board_container,
+        iobeya_board_container: iobeya_board_container,
         iobeya_room_id,
         github_project_id,
         rename_deleted,
         pi,
-        force_overwrite: true
+        force_overwrite: true,
+        action: "pushToIobeyaBtn",
+      };
+
+      const res = await fetch('/sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      await res.json();
+      alert('Synchronisation complète effectuée.');
+    };
+
+    document.getElementById('pushToGithubBtn').onclick = async () => {
+      // Récupérer les valeurs demandées
+      const boardSelect = document.getElementById('boardSelect');
+      const iobeya_board_id = boardSelect.value;
+      const iobeya_room_id = document.getElementById('roomSelect').value;
+      const containerStr =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
+      const iobeya_board_container = JSON.parse(containerStr);
+      const github_project_id = document.getElementById('githubSelect').value;
+      const rename_deleted = document.getElementById('delCheckbox').checked;
+      const pi = document.getElementById('piInput').value;
+
+      if (!lastVerification) {
+        alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
+        return;
+      }
+
+      if (!confirm("⚠️ Cette action synchronisera les features vers GitHub. Continuer ?")) return;
+      const body = {
+        ...lastVerification,
+        epic_id: document.getElementById('epicSelect').value,
+        iobeya_board_id,
+        iobeya_board_name: boardSelect.options[boardSelect.selectedIndex].textContent,
+        iobeya_board_container: iobeya_board_container,
+        iobeya_room_id,
+        github_project_id,
+        rename_deleted,
+        pi,
+        force_overwrite: true,
+        action: "pushToGithubBtn",
       };
 
       const res = await fetch('/sync', {

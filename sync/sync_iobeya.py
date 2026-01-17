@@ -137,8 +137,7 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-        
-        
+                
                 # --- Debug: break early on a specific object id (useful to isolate problematic payloads)
         BREAK_ON_OBJECT_ID = "2CF60A73-E9C2-2B37-813A-C17D15CDED02"
 
@@ -208,14 +207,9 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
         ## Parcours des cartes filtrées pour extraire les informations pertinentes
         
         for l_card in filtered_cards:
-            # --- Debug: log raw card payload (can be verbose)
-            try:
-                logger.debug("🧾 l_card raw payload:\n%s", json.dumps(l_card, indent=2, ensure_ascii=False))
-            except Exception as e:
-                logger.debug("🧾 l_card raw payload: <unserializable> (%s)", e)
-            
+
             featuretypeflag = False
-            # Todo use "props" pour determiner automatiquement le type de card ?
+            # Todo use "le card type" nommé du board pour determiner automatiquement le type de card ?
             # pour l'instant si card feature > traitement particulier sinon on regarde juste le contenu du titre
             
             l_entity_type = l_card.get("entityType", "") 
@@ -358,8 +352,6 @@ def iobeya_create_feature_card(base_url, room_id, board_id, container, api_key, 
     criterias = feature.get("Criteres_d_acceptation", "")       
 
     checklist = [] 
-    hypothesis = feature.get("Hypotheses_de_gain", "")  
-    criterias = feature.get("Criteres_d_acceptation", "")
     
     index = 0   
     for line in hypothesis.splitlines():
@@ -432,7 +424,6 @@ def iobeya_create_feature_card(base_url, room_id, board_id, container, api_key, 
         "checklist": checklist
     }
 
-    ##url = f"{base_url}/s/j/boards/{board_id}/cards"
     url = f"{base_url}/s/j/elements"
     payload = [payload] #iboeya API expects a list of elements
     
@@ -447,7 +438,55 @@ def iobeya_create_feature_card(base_url, room_id, board_id, container, api_key, 
         logger.warning("❌ Erreur lors de la création d'une FeatureCard iObeya : %s", e)
         return None
 
-# --- Placement paramétrable en quinconce ---
+
+# a créer une fonction de mise à jour de l'id_Objet dans la carte iobeya
+# idéalement on met à jour aussi le titre de la carte pour y inclure l'id_Objet
+# TODO : peux être trouver comment récuperer juste un seul objet et le mettre à jour ?
+
+def iobeya_update_feature_card_title_prefix(base_url, iobeya_api_token, new_title, id_Objet):
+    headers = {
+        "Authorization": f"Bearer {iobeya_api_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+
+    # on commence par récupérer l'objet iobeya via son uid
+      
+    try:
+        url = f"{base_url}/s/j/elements/{id_Objet}"
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        # iObeya may return a list; keep the first element
+        if isinstance(data, list):
+            if not data:
+                logger.warning("❌ Réponse iObeya vide pour l'objet : %s", id_Objet)
+                return None
+            data = data[0]
+
+        logger.info("🟦 Get FeatureCard iObeya : %s", id_Objet)
+    except requests.RequestException as e:
+        logger.warning("❌ Erreur lors de la création d'une FeatureCard iObeya : %s", e)
+        return None
+    
+    # on met à jour le titre de la carte 
+    
+    data["props"]["title"] = new_title
+    payload = [data] #iboeya API expects a list of elements
+    
+    try:
+        url = f"{base_url}/s/j/elements"
+        #logger.info("📤 Payload envoyé à iObeya : %s", json.dumps(payload, indent=2, ensure_ascii=False))
+        response = requests.put(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        logger.info("🟦 Title FeatureCard mise à jour dans iObeya : %s (%s)", id_Objet, new_title)
+        return data
+    except requests.RequestException as e:
+        logger.warning("❌ Erreur lors de la mise à jour d'une FeatureCard iObeya : %s", e)
+        return None
+       
 
 # --- Placement paramétrable en quinconce (stagger) ---
 

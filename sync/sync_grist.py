@@ -17,6 +17,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sync_grist")
     
+from sync.sync_iobeya import (
+    iobeya_update_feature_card_title_prefix
+)    
+
+from sync.sync_github import (
+    github_update_issue_title_gql,
+    github_update_issue_title_gql_label
+) 
+
+
 ###########    
 ###########    Methodes pour gérer les interactions avec Grist  ###########
 ###########
@@ -284,7 +294,7 @@ def grist_get_epic_object(base_url, doc_id, api_key, table_name, filter_epic_id=
 # elle doit également tenir compte des updates entre les deux systèmes iobeya et github... 
 # ex: lancer une deuxième synchronisation après la création des éléments manquants ? )
 
-def grist_create_epic_objects(grist_conf, context):
+def grist_create_epic_objects(grist_conf, iobeya_conf,github_conf,context):
     """
     Crée dans Grist les features présentes dans iObeya ou GitHub
     mais absentes de Grist (action = 'not_present').
@@ -325,9 +335,16 @@ def grist_create_epic_objects(grist_conf, context):
         logger.warning("❌ Aucun Epic sélectionné (id_Epic/epic_id absent du contexte).")
         return []
     
-    epic_Name = the_epic.get("name") if isinstance(the_epic, dict) else None
-    epic_id = the_epic.get("id_epic") if isinstance(the_epic, dict) else None
+    epic_Name = the_epic.get("name") if isinstance(the_epic, dict) else None  # Grist utilisera le nom de l'epic pour faire le match d'une référence
 
+    # Identifiant manuel de l'epic (utilisé dans certains préfixes). On le normalise (str + strip)
+    # pour éviter les concat/espaces parasites.
+    epic_id = (the_epic.get("id_epic") if isinstance(the_epic, dict) else None)
+    epic_id = str(epic_id).strip() if epic_id is not None else ""
+
+    # Normalisation PI (souvent reçu en int ou en str depuis l'UI/API)
+    pi_Num = str(pi_Num).strip() if pi_Num is not None else ""
+    
     #rename_deleted = context.get("rename_deleted", False)
     #force_overwrite = context.get("force_overwrite", False)    
 
@@ -340,7 +357,8 @@ def grist_create_epic_objects(grist_conf, context):
     max_ids = _compute_max_id_by_type(grist_objects, pi_num=pi_Num)
 
     # Fusion des diffs iObeya et GitHub pour créer les onjets manquants dans Grist
-
+    # todo ajouter un champ source dans les diffs pour savoir d'où vient l'objet (iobeya/github) et l'id de l'objets source 
+    
     for item in wrapper.get("iobeya_diff", []):
         if item.get("action") == "not_present":
             # ici il faut recupérer l'objet complet depuis la source ( on ignore l'id car vide )
@@ -406,8 +424,60 @@ def grist_create_epic_objects(grist_conf, context):
             Commentaires=f"Créé via synchronisation depuis {source}, le {datetime.now().strftime('%Y-%m-%d')}",
             Commited=Commited
         )
+        
+        # ajouter les informations de source / contexte si besoin
+        # calcule de l'id_de l'objet du grist à partir de l'objet créé
+        # TODO : à refactorer plus tard ( mettre dans une fonction dédiée dans sync utils par exemple )
 
         if result:
+            id3_str = str(id_Num).zfill(3)  # formatage avec zéros initiaux
+
+            id_objet_prefix = ""
+            if type == "Features":
+                id_objet_prefix = f"FP{pi_Num}-{id3_str}"
+            if type == "Dependances":
+                id_objet_prefix = f"DP{pi_Num}-{epic_id}-R{id3_str}"
+            if type == "Risques":
+                prefix = "TObjP" if str(Commited).strip().lower() == "commited" else "uTObjP"  # TODO: prefix non utilisé ?
+                id_objet_prefix = f"RP{pi_Num}-{epic_id}-R{id3_str}"
+            if type == "Issues":
+                id_objet_prefix = f"IssueP{pi_Num}-{epic_id}-R{id3_str}"
+
+            result["id_Objet"] = id_objet_prefix
+            result["source"] = source
+
+            # todo à refactorer plus tard ( mettre dans une fonction dédiée )
+            # mise à jour des objects créés avec l'id_Objet calculé
+
+            if source == "iobeya":
+                result["source"] = source
+
+                # on récupére l'objet iobeya correspondant pour faire la mise à jour
+                #iobeya_object = find_item_by_id(iobeya_objects, Nom, "Nom")
+
+                # on met à jour le titre de la carte iobeya pour y inclure
+                iobeya_api_url = iobeya_conf.get("api_url", [])
+                iobeya_api_token = iobeya_conf.get("api_token", [])
+                object_id = object.get("uid", "")
+                new_title = f"[{id_objet_prefix}] : {Nom}"
+                res = iobeya_update_feature_card_title_prefix(iobeya_api_url, iobeya_api_token, new_title, object_id)
+                result["update_iobeyacard_title"] = res
+
+            if source == "github":
+                result["source"] = source
+                # on met à jour le titre de l'issue de graphQl pour y inclure l'identifiant en prefixe
+                github_token = github_conf.get("api_token", "")
+                new_title = f"[{id_objet_prefix}] : {Nom}"
+                object_id = object.get("id_Github_Issue", "")
+                number = object.get("number", "")
+                id_Github_IssueGQL = object.get("id_Github_IssueGQL", "")
+                nameWithOwner = object.get("nameWithOwner", "")
+
+                #res = github_update_issue_title_gql( github_token, id_Github_IssueGQL, new_title) 
+                res = github_update_issue_title_gql_label(github_token, nameWithOwner, id_Github_IssueGQL, number, new_title, add_feature_label = True)
+                result["update_github_issue_title"] = res
+                
+            # Si création réussie, on ajoute à la liste des créés et gardant depuis quel source
             created.append(result)
             
     ## todo : pensez à ajouter des fonction de CRUD dans iobeya et github ? (dans la methode appellante ) 
@@ -478,66 +548,6 @@ def grist_create_object(
     except requests.exceptions.RequestException as e:
         logger.warning(f"❌ Erreur lors de la création de l'objet {type} : {e}")
         return None
-
-def update_grist_feature(base_url, doc_id, api_key, record_id, table_name="Features", **kwargs):
-    """
-    Met à jour un enregistrement existant dans la table 'Features' de Grist.
-    Tous les champs à modifier sont passés via **kwargs.
-    """
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-
-    payload = {
-        "records": [
-            {
-                "id": record_id,
-                "fields": kwargs
-            }
-        ]
-    }
-
-    url = f"{base_url}/api/docs/{doc_id}/tables/{table_name}/records"
-    url = url.replace('://', '§§').replace('//', '/').replace('§§', '://')
-
-    try:
-        response = requests.patch(url, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        logger.info(f"✅ Feature {record_id} mise à jour avec succès : {data}")
-        return data
-    
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"❌ Erreur lors de la mise à jour de la feature {record_id} : {e}")
-        return None
-
-# Nouvelle fonction pour supprimer une feature dans Grist,
-#  todo: tester !!, peut-être ne pas supprimer réellement mais marquer comme del_
-
-def delete_grist_feature(base_url, doc_id, api_key, record_id, table_name="Features"):
-    """
-    Supprime une ligne (enregistrement) dans la table 'Features' de Grist.
-    """
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json"
-    }
-
-    url = f"{base_url}/api/docs/{doc_id}/tables/{table_name}/records/{record_id}"
-    url = url.replace("//api", "/api").replace(":/", "://")
-
-    try:
-        response = requests.delete(url, headers=headers)
-        response.raise_for_status()
-        logger.info(f"🗑️ Feature {record_id} supprimée avec succès.")
-        return True
-    
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"❌ Erreur lors de la suppression de la feature {record_id} : {e}")
-        return False
-
 
 ### UTILITAIRES
 

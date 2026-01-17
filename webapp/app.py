@@ -170,6 +170,7 @@ IOBEYA_TYPES_CARD_FEATURES = iobeya_conf.get("types_card_features", [])
 github_conf = config.get("github", {})
 GITHUB_TOKEN_ENV_VAR = github_conf.get("token_env_var", "")
 GITHUB_ORGANIZATIONS = github_conf.get("organizations", [])
+GITHUB_DEFAULT_REPO_FULL_NAME = github_conf.get("default_repo_full_name", "")  
 
 # --- Allowed object types for diffing (explicit allowlists)
 IOBEYA_ALLOWED_OBJECT_TYPES = {
@@ -496,6 +497,7 @@ def sync():
         rename_deleted = data.get("rename_deleted")
         force_overwrite = data.get("force_overwrite")
         pi = data.get("pi")
+        action = data.get("action")
     else:
         iobeya_board_id = request.args.get("iobeya_board_id")
         iobeya_board_container = request.args.get("iobeya_board_container")  # important pour créer l'objet dans un panneau
@@ -505,6 +507,7 @@ def sync():
         rename_deleted = request.args.get("rename_deleted")
         force_overwrite = request.args.get("force_overwrite")
         pi = request.args.get("pi")
+        action = request.args.get("action")
 
     app.logger.debug("🔁 Paramètres reçus pour synchronisation :")
     app.logger.debug(f"  iobeya_board_id = {iobeya_board_id}")
@@ -531,7 +534,8 @@ def sync():
 
     github_params = {
         "project_id": github_project_id,
-        "token_env_var": GITHUB_TOKEN_ENV_VAR
+        "api_token": GITHUB_TOKEN_ENV_VAR,
+        "default_repo_full_name": GITHUB_DEFAULT_REPO_FULL_NAME
     }
 
     # Met à jour le grist_doc_id actif dans le contexte avant synchronisation
@@ -544,6 +548,7 @@ def sync():
     session_data["rename_deleted"] = rename_deleted
     session_data["force_overwrite"] = force_overwrite
     session_data["pi_num"] = pi
+    session_data["action"] = action
     
     # Appel effectif à synchronize_all avec les dictionnaires de paramètres
     result = synchronize_all(
@@ -561,7 +566,8 @@ def sync():
         "rename_deleted": rename_deleted,
         "force_overwrite": force_overwrite,
         "pi": pi,
-        "result": result
+        "result": result,
+        "action": action,
     })
 
 

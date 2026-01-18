@@ -174,7 +174,7 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                                 "Nom": cleaned_text,
                                 "timestamp": item.get("modificationDate"),
                                 "id_Num": item_number,
-                                "Commited": "Committed" if commitment == "committed" else "Uncommitted",
+                                "Committed": "Committed" if commitment == "committed" else "Uncommitted",
                                 "pi_Num": pi_number,
                             }
                         objects.append(objectives)
@@ -282,7 +282,7 @@ def iobeya_get_board_objects(base_url, board_id, api_key, type_features_card_lis
                             "type": "Objectives",
                             "uid": l_card.get("id"),
                             "Nom": cleaned_text,
-                            "Commited": "Committed" if detected_kind == "committed" else "Uncommitted",
+                            "Committed": "Committed" if detected_kind == "committed" else "Uncommitted",
                             "timestamp": l_card.get("modificationDate"),
                             "id_Num": item_number,
                             "pi_Num": pi_number,
@@ -443,7 +443,7 @@ def iobeya_create_feature_card(base_url, room_id, board_id, container, api_key, 
 # idéalement on met à jour aussi le titre de la carte pour y inclure l'id_Objet
 # TODO : peux être trouver comment récuperer juste un seul objet et le mettre à jour ?
 
-def iobeya_update_feature_card_title_prefix(base_url, iobeya_api_token, new_title, id_Objet):
+def iobeya_update_object_title_prefix(base_url, iobeya_api_token, new_title, id_Objet):
     headers = {
         "Authorization": f"Bearer {iobeya_api_token}",
         "Accept": "application/json",
@@ -470,9 +470,15 @@ def iobeya_update_feature_card_title_prefix(base_url, iobeya_api_token, new_titl
         logger.warning("❌ Erreur lors de la création d'une FeatureCard iObeya : %s", e)
         return None
     
-    # on met à jour le titre de la carte 
-    
-    data["props"]["title"] = new_title
+    # on met à jour le titre de la carte ou le contentLabel selon le type d'objet
+    if ( data.get("props") or isinstance(data.get("props"), dict) ):
+        if ( data.get("@class") == "com.iobeya.dto.BoardCardDTO" ): # pour features ou dépendances
+                data["props"]["title"] = new_title
+        if ( data.get("@class") == "com.iobeya.dto.BoardNoteDTO" ): # pour features ou dépendances
+                data["props"]["content"] = new_title                   
+    else :
+        data["contentLabel"]= new_title
+   
     payload = [data] #iboeya API expects a list of elements
     
     try:

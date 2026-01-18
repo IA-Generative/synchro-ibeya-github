@@ -364,7 +364,7 @@ def verify():
         if doc_id_param:
             grist_doc_id = doc_id_param
         iobeya_board_id = data.get("iobeya_board_id", None)
-        github_project_id = data.get("github_project_id")
+        github_project_id = data.get("github_project_id", None)
         pi = data.get("pi")
         epic = data.get("epic")
         room = data.get("room")
@@ -374,12 +374,12 @@ def verify():
         doc_id_param = request.args.get("doc_id", "").strip()
         if doc_id_param:
             grist_doc_id = doc_id_param
-        iobeya_board_id = request.args.get("iobeya_board_id", default_iobeya_board_id)
-        github_project_id = request.args.get("github_project_id")
-        pi = request.args.get("pi")
-        epic = request.args.get("epic")
-        room = request.args.get("room")
-        project = request.args.get("project")
+        iobeya_board_id = request.args.get("iobeya_board_id", None)
+        github_project_id = request.args.get("github_project_id", None)
+        pi = request.args.get("pi", None)
+        epic = request.args.get("epic", None)
+        room = request.args.get("room", None)
+        project = request.args.get("project", None)
         rename_deleted = request.args.get("rename_deleted")
         
     app.logger.debug(f"📘 Doc Grist actif : {grist_doc_id}")
@@ -408,25 +408,31 @@ def verify():
         session_data["grist_objects"].clear()
         
     # récupérer les objets depuis iObeya
+    if session_data is not None and "iobeya_objects" not in session_data:
+        session_data["iobeya_objects"] = None
+    if session_data is not None and "github_objects" not in session_data :
+        session_data["github_objects"] = None
     try:
-        df = iobeya_get_board_objects(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN, IOBEYA_TYPES_CARD_FEATURES)
-        session_data["iobeya_objects"] = df_to_records_jsonsafe(df)
-        app.logger.info(f" >>✅ {len(session_data['iobeya_objects'])} objets récupérées depuis iObeya (app.py).")
+        #verifier la présence du board_id 
+        if iobeya_board_id is not None:
+            df = iobeya_get_board_objects(IOBEYA_API_URL, iobeya_board_id, IOBEYA_API_TOKEN, IOBEYA_TYPES_CARD_FEATURES)
+            session_data["iobeya_objects"] = df_to_records_jsonsafe(df)
+            app.logger.info(f" >>✅ {len(session_data['iobeya_objects'])} objets récupérées depuis iObeya (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features iobeya : {e}")
         session_data["iobeya_objects"].clear()
         
     # récupérer les objets depuis GitHub
     try:
-        # `GITHUB_TOKEN_ENV_VAR` contient le nom de la variable d'environnement (ex: "GITHUB_TOKEN")
-        github_objects = github_get_project_objects(github_project_id, GITHUB_TOKEN_ENV_VAR)
-        if isinstance(github_objects, list):
-            session_data["github_objects"] = _json_safe(github_objects)
-        else:
-            # Compat: si la fonction renvoie un DataFrame à l'avenir
-            df = github_objects
-            session_data["github_objects"] = df_to_records_jsonsafe(df)
-        app.logger.info(f" >>✅ {len(session_data['github_objects'])} objets récupérés depuis GitHub (app.py).")  
+        if github_project_id is not None :
+            github_objects = github_get_project_objects(github_project_id, GITHUB_TOKEN_ENV_VAR)
+            if isinstance(github_objects, list):
+                session_data["github_objects"] = _json_safe(github_objects)
+            else:
+                # Compat: si la fonction renvoie un DataFrame à l'avenir
+                df = github_objects
+                session_data["github_objects"] = df_to_records_jsonsafe(df)
+            app.logger.info(f" >>✅ {len(session_data['github_objects'])} objets récupérés depuis GitHub (app.py).")  
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des objets GitHub : {e}")
         session_data["github_objects"].clear()
@@ -441,23 +447,26 @@ def verify():
         id_epic_value = grist_get_epic(GRIST_API_URL,grist_doc_id,GRIST_API_TOKEN,epic,"Epics")
 
         # Calcul des diffs iObeya et GitHub vs grist
-        session_data["iobeya_diff"] = compute_diff(
-            session_data["grist_objects"],
-            session_data["iobeya_objects"],
-            rename_deleted,
-            epic_obj,
-            allowed_types=IOBEYA_ALLOWED_OBJECT_TYPES,
-        )
-        app.logger.info(f"✅ {len(session_data['iobeya_diff'])} différences récupérées depuis iObeya (app.py).")
-        session_data["github_diff"] = compute_diff(
-            session_data["grist_objects"],
-            session_data["github_objects"],
-            rename_deleted,
-            epic_obj,
-            allowed_types=GITHUB_ALLOWED_OBJECT_TYPES,
-        )
-        app.logger.info(f"✅ {len(session_data['github_diff'])} différences récupérées depuis GitHub (app.py).")
-        # NOTE : Pour se rappeller >> la synchronisation bidirectionnelle doit également synchroniser les features "not_present" entre iobeya et github (voir sync.py)
+        if iobeya_board_id is not None:
+            session_data["iobeya_diff"] = compute_diff(
+                session_data["grist_objects"],
+                session_data["iobeya_objects"],
+                rename_deleted,
+                epic_obj,
+                allowed_types=IOBEYA_ALLOWED_OBJECT_TYPES,
+            )
+            app.logger.info(f"✅ {len(session_data['iobeya_diff'])} différences récupérées depuis iObeya (app.py).")
+
+        if github_project_id is not None :        
+            session_data["github_diff"] = compute_diff(
+                session_data["grist_objects"],
+                session_data["github_objects"],
+                rename_deleted,
+                epic_obj,
+                allowed_types=GITHUB_ALLOWED_OBJECT_TYPES,
+            )
+            app.logger.info(f"✅ {len(session_data['github_diff'])} différences récupérées depuis GitHub (app.py).")
+
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération des features GitHub : {e}")
         session_data["github"].clear()
@@ -488,10 +497,10 @@ def sync():
     # Récupérer explicitement les paramètres nécessaires
     if request.method == "POST":
         data = request.get_json(silent=True) or request.form or {}
-        iobeya_board_id = data.get("iobeya_board_id")
+        iobeya_board_id = data.get("iobeya_board_id") or None
         iobeya_board_container = data.get("iobeya_board_container") # important pour créer l'objet dans un panneau
-        iobeya_room_id = data.get("iobeya_room_id")
-        github_project_id = data.get("github_project_id")
+        iobeya_room_id = data.get("iobeya_room_id") or None
+        github_project_id = data.get("github_project_id") or None
         # Compat: le front envoie historiquement `epic` (id de l'epic). On accepte aussi `epic_id`.
         epic_id = data.get("epic_id") or data.get("epic")
         rename_deleted = data.get("rename_deleted")
@@ -501,13 +510,13 @@ def sync():
     else:
         iobeya_board_id = request.args.get("iobeya_board_id")
         iobeya_board_container = request.args.get("iobeya_board_container")  # important pour créer l'objet dans un panneau
-        iobeya_room_id = request.args.get("iobeya_room_id")
-        github_project_id = request.args.get("github_project_id")
-        epic_id = request.args.get("epic_id")
-        rename_deleted = request.args.get("rename_deleted")
-        force_overwrite = request.args.get("force_overwrite")
-        pi = request.args.get("pi")
-        action = request.args.get("action")
+        iobeya_room_id = request.args.get("iobeya_room_id") or None
+        github_project_id = request.args.get("github_project_id") or None
+        epic_id = request.args.get("epic_id") or None
+        rename_deleted = request.args.get("rename_deleted") or None
+        force_overwrite = request.args.get("force_overwrite") or None
+        pi = request.args.get("pi") or None
+        action = request.args.get("action") or None
 
     app.logger.debug("🔁 Paramètres reçus pour synchronisation :")
     app.logger.debug(f"  iobeya_board_id = {iobeya_board_id}")

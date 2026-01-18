@@ -185,64 +185,6 @@
     #verifyBtn:hover {
       background: #15827a;
     }
-
-    /* État : préparation de synchro effectuée */
-    #verifyBtn.verified {
-      background: #2e7d32;
-    }
-    #verifyBtn.verified:hover {
-      background: #1b5e20;
-    }
-
-    /* Bandeau : paramètres modifiés après préparation */
-    .stale-warning {
-      display: none;
-      background: #fff3cd;
-      border: 1px solid #ffe69c;
-      color: #664d03;
-      padding: 8px 10px;
-      border-radius: 8px;
-      font-size: 0.85em;
-      line-height: 1.35;
-      margin: 10px 0 6px 0;
-    }
-    .stale-warning strong { font-weight: 700; }
-
-
-    /* Overlay + spinner : travail en cours */
-    .loading-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(255, 255, 255, 0.72);
-      backdrop-filter: blur(2px);
-      z-index: 20000;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .loading-overlay.show {
-      display: flex;
-    }
-    .spinner {
-      width: 42px;
-      height: 42px;
-      border-radius: 50%;
-      border: 4px solid rgba(25, 118, 210, 0.25);
-      border-top-color: rgba(25, 118, 210, 1);
-      animation: spin 0.9s linear infinite;
-    }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    .loading-text {
-      font-size: 0.9em;
-      color: #2c3e50;
-      font-weight: 600;
-    }
-
     .number-group {
       display: flex;
       align-items: center;
@@ -309,10 +251,6 @@
 </head>
 <body>
   <div class="container">
-    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-busy="true">
-      <div class="spinner" aria-hidden="true"></div>
-      <div id="loadingText" class="loading-text">Travail en cours…</div>
-    </div>
     <div class="header-row">
       <h1>
         Synchronisation
@@ -385,20 +323,10 @@
     </small>
 
     <div style="margin: 1.5em 0 0.5em 0;">
-      <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer
-        Synchro</button><br>
-    
-      <div id="staleWarning" class="stale-warning">
-        ⚠️ <strong>Paramètres modifiés</strong> : relancez <strong>Préparer Synchro</strong> pour réactiver les boutons de
-        synchronisation.
-      </div>
-    
-      <button id="pullToGristBtn" disabled
-        title="Synchronise les données dans le sens iObeya/GitHub vers Grist">iObeya/GitHub >> Grist</button>
-      <button id="pushToIobeyaBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya">Features Grist
-        >> iObeya</button>
-      <button id="pushToGithubBtn" disabled title="Force la synchronisation dans le sens Grist vers GitHub">Features Grist
-        >> GitHub</button>
+      <button id="verifyBtn" title="Analyse les différences entre Grist, iObeya et GitHub avant synchronisation">Préparer Synchro</button><br>
+      <button id="pullToGristBtn" disabled title="Synchronise les données dans le sens iObeya/GitHub vers Grist">iObeya/GitHub >> Grist</button> </button>
+      <button id="pushToIobeyaBtn" disabled title="Force la synchronisation dans le sens Grist vers iObeya">Features Grist >> iObeya</button>
+      <button id="pushToGithubBtn" disabled title="Force la synchronisation dans le sens Grist vers GitHub">Features Grist >> GitHub</button>
     </div>
 
 <pre id="results"
@@ -408,42 +336,6 @@
   </div>
 
 <script>
-    // --- Animation "travail en cours" ---
-    function showLoading(message) {
-      const overlay = document.getElementById('loadingOverlay');
-      const text = document.getElementById('loadingText');
-      if (text) text.textContent = message || 'Travail en cours…';
-      if (overlay) overlay.classList.add('show');
-
-      // Désactive tous les boutons pour éviter des actions concurrentes
-      document.querySelectorAll('button').forEach(b => {
-        b.dataset.prevDisabled = b.disabled ? '1' : '0';
-        b.disabled = true;
-      });
-    }
-
-    function hideLoading() {
-      const overlay = document.getElementById('loadingOverlay');
-      if (overlay) overlay.classList.remove('show');
-
-      // Restaure l'état disabled précédent, puis recalcule l'état des boutons d'action
-      document.querySelectorAll('button').forEach(b => {
-        const prev = b.dataset.prevDisabled;
-        if (prev === '1') b.disabled = true;
-        else if (prev === '0') b.disabled = false;
-        delete b.dataset.prevDisabled;
-      });
-
-      // Recalcule la logique métier (Préparer Synchro / selections)
-      if (typeof updateActionButtons === 'function') {
-        updateActionButtons();
-      }
-
-      // Le bouton JSON dépend aussi de la préparation
-      const downloadBtn = document.getElementById('downloadJsonBtn');
-      if (downloadBtn) downloadBtn.disabled = !lastVerification;
-    }
-
     async function loadBoards(roomId) {
       const boardSelect = document.getElementById('boardSelect');
       boardSelect.innerHTML = '<option>Chargement...</option>';
@@ -453,18 +345,6 @@
         if (!res.ok) throw new Error(`Erreur HTTP ${res.status}`);
         const data = await res.json();
         boardSelect.innerHTML = '';
-
-        // --- Entrées par défaut ---
-        const noneOpt = document.createElement('option');
-        noneOpt.value = '';
-        noneOpt.textContent = '— Sans action —';
-        boardSelect.appendChild(noneOpt);
-
-        const sepOpt = document.createElement('option');
-        sepOpt.value = '__sep__';
-        sepOpt.textContent = '──────────────';
-        sepOpt.disabled = true;
-        boardSelect.appendChild(sepOpt);
 
         if (!Array.isArray(data) || data.length === 0) {
           const opt = document.createElement('option');
@@ -484,19 +364,6 @@
       } catch (err) {
         console.error('❌ Erreur lors du chargement des boards iObeya :', err);
         boardSelect.innerHTML = '';
-
-        // --- Entrées par défaut ---
-        const noneOpt = document.createElement('option');
-        noneOpt.value = '';
-        noneOpt.textContent = '— Sans action —';
-        boardSelect.appendChild(noneOpt);
-
-        const sepOpt = document.createElement('option');
-        sepOpt.value = '__sep__';
-        sepOpt.textContent = '──────────────';
-        sepOpt.disabled = true;
-        boardSelect.appendChild(sepOpt);
-
         const opt = document.createElement('option');
         opt.textContent = '(Erreur de chargement des boards)';
         opt.disabled = true;
@@ -518,18 +385,6 @@
         const data = await res.json();
         githubSelect.innerHTML = '';
 
-        // --- Entrées par défaut ---
-        const noneOpt = document.createElement('option');
-        noneOpt.value = '';
-        noneOpt.textContent = '— Sans action —';
-        githubSelect.appendChild(noneOpt);
-
-        const sepOpt = document.createElement('option');
-        sepOpt.value = '__sep__';
-        sepOpt.textContent = '──────────────';
-        sepOpt.disabled = true;
-        githubSelect.appendChild(sepOpt);
-
         if (!Array.isArray(data) || data.length === 0) {
           const opt = document.createElement('option');
           opt.textContent = '(Aucun projet disponible)';
@@ -548,19 +403,6 @@
       } catch (err) {
         console.error('❌ Erreur lors du chargement des projets GitHub :', err);
         githubSelect.innerHTML = '';
-
-        // --- Entrées par défaut ---
-        const noneOpt = document.createElement('option');
-        noneOpt.value = '';
-        noneOpt.textContent = '— Sans action —';
-        githubSelect.appendChild(noneOpt);
-
-        const sepOpt = document.createElement('option');
-        sepOpt.value = '__sep__';
-        sepOpt.textContent = '──────────────';
-        sepOpt.disabled = true;
-        githubSelect.appendChild(sepOpt);
-
         const opt = document.createElement('option');
         opt.textContent = '(Erreur de chargement des projets)';
         opt.disabled = true;
@@ -570,25 +412,13 @@
 
     document.addEventListener('DOMContentLoaded', async () => {
       const orgSelect = document.getElementById('orgSelect');
-      
-      const sw = document.getElementById('staleWarning');
-      if (sw) sw.style.display = 'none';
-
       // 1) Charger d'abord les projets pour l'org par défaut (ou premier choix)
       await loadProjects(orgSelect.value || orgSelect.options[0]?.value);
-      
-      orgSelect.addEventListener('change', () => {
-        if (!isInitializing) invalidateVerification();
-        loadProjects(orgSelect.value);
-      });
+      orgSelect.addEventListener('change', () => loadProjects(orgSelect.value));
 
       // 2) Charger les boards pour la room sélectionnée si présente
       const roomSelect = document.getElementById('roomSelect');
-      roomSelect.addEventListener('change', () => {
-        if (!isInitializing) invalidateVerification();
-        loadBoards(roomSelect.value);
-      });
-
+      roomSelect.addEventListener('change', () => loadBoards(roomSelect.value));
       if (roomSelect.value) {
         await loadBoards(roomSelect.value);
       }
@@ -597,38 +427,6 @@
       if (typeof loadSettingsFromCookie === 'function') {
         await loadSettingsFromCookie();
       }
-
-      // 4) Empêche la sélection du séparateur et met à jour les boutons (uniquement après Préparer Synchro)
-      const boardSelect = document.getElementById('boardSelect');
-      const githubSelect = document.getElementById('githubSelect');
-
-      boardSelect.addEventListener('change', () => {
-        if (!isInitializing) invalidateVerification();
-        normalizeSelect(boardSelect);
-        updateActionButtons();
-      });
-
-      githubSelect.addEventListener('change', () => {
-        if (!isInitializing) invalidateVerification();
-        normalizeSelect(githubSelect);
-        updateActionButtons();
-      });
-
-      document.getElementById('piInput')?.addEventListener('input', () => {
-        if (!isInitializing) invalidateVerification();
-      });
-      document.getElementById('epicSelect')?.addEventListener('change', () => {
-        if (!isInitializing) invalidateVerification();
-      });
-      document.getElementById('delCheckbox')?.addEventListener('change', () => {
-        if (!isInitializing) invalidateVerification();
-      });
-
-      updateActionButtons();
-
-      // Fin d'initialisation (restauration cookie, chargements async, etc.)
-      isInitializing = false;
-      
     });
 
     function parseTimestamp(value) {
@@ -673,79 +471,16 @@
     }
 
     let lastVerification = null;
-    let isInitializing = true;
-
-    function invalidateVerification() {
-      if (!lastVerification) return;
-
-      lastVerification = null;
-      updateActionButtons();
-
-      // Retour couleur bouton "Préparer Synchro"
-      document.getElementById('verifyBtn')?.classList.remove('verified');
-
-      // Résultats JSON obsolètes
-      const downloadBtn = document.getElementById('downloadJsonBtn');
-      if (downloadBtn) downloadBtn.disabled = true;
-
-      // Bandeau d'avertissement
-      const sw = document.getElementById('staleWarning');
-      if (sw) sw.style.display = 'block';
-    }
-
-    function isDisabledSelected(selectEl) {
-      const opt = selectEl.options[selectEl.selectedIndex];
-      return !!(opt && opt.disabled);
-    }
-
-    function normalizeSelect(selectEl) {
-      // Si une option disabled (séparateur) est sélectionnée, on revient sur “Sans action”
-      if (isDisabledSelected(selectEl)) {
-        selectEl.selectedIndex = 0;
-      }
-    }
-
-    function hasValidBoardSelection() {
-      const boardSelect = document.getElementById('boardSelect');
-      normalizeSelect(boardSelect);
-      return !!boardSelect.value;
-    }
-
-    function hasValidGithubProjectSelection() {
-      const githubSelect = document.getElementById('githubSelect');
-      normalizeSelect(githubSelect);
-      return !!githubSelect.value;
-    }
-
-    function updateActionButtons() {
-      const verified = !!lastVerification;
-      const hasBoard = hasValidBoardSelection();
-      const hasProject = hasValidGithubProjectSelection();
-
-      // Pull: autorisé si "Préparer Synchro" a été lancé ET qu'au moins une source est activée.
-      document.getElementById('pullToGristBtn').disabled = !(verified && (hasBoard || hasProject));
-
-      // Push: chaque bouton dépend de sa destination.
-      document.getElementById('pushToIobeyaBtn').disabled = !(verified && hasBoard);
-      document.getElementById('pushToGithubBtn').disabled = !(verified && hasProject);
-    }
 
     async function runVerification() {
-      // Tant que la vérification n'est pas faite, on force le mode "non vérifié".
-      lastVerification = null;
-      updateActionButtons();
-
-      // On masque l'avertissement pendant la préparation
-      const sw0 = document.getElementById('staleWarning');
-      if (sw0) sw0.style.display = 'none';
-
+      document.getElementById('pullToGristBtn').disabled = true;
+      document.getElementById('pushToIobeyaBtn').disabled = true;
+      document.getElementById('pushToGithubBtn').disabled = true;
 
       const boardSelect = document.getElementById('boardSelect');
-      normalizeSelect(boardSelect);
-      const iobeya_board_id = boardSelect.value || null;
-      const iobeya_board_container = iobeya_board_id
-        ? (boardSelect.options[boardSelect.selectedIndex].dataset.container || null)
-        : null;
+      const iobeya_board_id = boardSelect.value;
+      const iobeya_board_container =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
       const iobeya_room_id = document.getElementById('roomSelect').value;
 
       const body = {
@@ -756,43 +491,18 @@
         rename_deleted: document.getElementById('delCheckbox').checked,
         iobeya_board_id,
         iobeya_board_container,
-        iobeya_board_name: iobeya_board_id ? boardSelect.options[boardSelect.selectedIndex].textContent : null,
+        iobeya_board_name: boardSelect.options[boardSelect.selectedIndex].textContent,
         iobeya_room_id,
-        github_project_id: (function(){
-          const sel = document.getElementById('githubSelect');
-          normalizeSelect(sel);
-          return sel.value || null;
-        })()
+        github_project_id: document.getElementById('githubSelect').value
       };
-      let res;
-      let data;
-      try {
-        showLoading('Préparation de la synchro…');
-        res = await fetch('/prepare', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(body)
-        });
+      const res = await fetch('/prepare', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
 
-        data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          console.error('❌ Erreur /prepare:', res.status, data);
-          alert('❌ Erreur pendant la préparation. Consultez la console.');
-          return;
-        }
-
-        lastVerification = body;
-      } finally {
-        hideLoading();
-      }
-      updateActionButtons();
-
-      // Préparation OK: marquer visuellement et cacher l'avertissement
-      document.getElementById('verifyBtn')?.classList.add('verified');
-      const sw = document.getElementById('staleWarning');
-      if (sw) sw.style.display = 'none';
-
+      const data = await res.json();
+      lastVerification = body;
       const resultContainer = document.getElementById('results');
       resultContainer.innerHTML = "";
 
@@ -852,7 +562,9 @@
       renderSection('modifications à faire dans iObeya', data.iobeya_diff);
       renderSection('modifications dans GitHub', data.github_diff);
 
-      updateActionButtons();
+      document.getElementById('pullToGristBtn').disabled = false;
+      document.getElementById('pushToIobeyaBtn').disabled = false;
+      document.getElementById('pushToGithubBtn').disabled = false;
       const downloadBtn = document.getElementById('downloadJsonBtn');
       downloadBtn.disabled = false;
 
@@ -874,20 +586,12 @@
     document.getElementById('pullToGristBtn').onclick = async () => {
       // Récupérer les valeurs demandées
       const boardSelect = document.getElementById('boardSelect');
-      normalizeSelect(boardSelect);
-      const iobeya_board_id = boardSelect.value || null;
+      const iobeya_board_id = boardSelect.value;
       const iobeya_room_id = document.getElementById('roomSelect').value;
-
-      const iobeya_board_container = (function(){
-        if (!iobeya_board_id) return null;
-        const containerStr = boardSelect.options[boardSelect.selectedIndex].dataset.container || null;
-        if (!containerStr) return null;
-        try { return JSON.parse(containerStr); } catch(e) { return null; }
-      })();
-
-      const githubSelect = document.getElementById('githubSelect');
-      normalizeSelect(githubSelect);
-      const github_project_id = githubSelect.value || null;
+      const containerStr =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
+      const iobeya_board_container = JSON.parse(containerStr);
+      const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
       const pi = document.getElementById('piInput').value;
       if (!lastVerification) {
@@ -906,55 +610,24 @@
         force_overwrite: false,
         action: "pullToGristBtn"
       };
-      let res;
-      let payload;
-      try {
-        showLoading('Synchronisation en cours…');
-        res = await fetch('/sync', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(body)
-        });
-
-        // Lecture de la réponse (utile pour debug)
-        payload = await res.json().catch(() => ({}));
-      } finally {
-        hideLoading();
-      }
-
-      if (!res.ok) {
-        console.error('❌ Erreur /sync (pullToGristBtn):', res.status, payload);
-        alert('❌ Erreur pendant la synchronisation. Consultez la console.');
-        return;
-      }
-
-      // Une synchro terminée invalide la préparation courante et force une nouvelle préparation.
-      invalidateVerification();
-
-      // Optionnel : nettoyer l'affichage pour éviter toute confusion.
-      const resultContainer = document.getElementById('results');
-      if (resultContainer) resultContainer.textContent = '';
-
-      alert('Synchronisation terminée. Relancez "Préparer Synchro" pour continuer.');
+      const res = await fetch('/sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      await res.json();
+      alert('Synchronisation terminée.');
     };
 
     document.getElementById('pushToIobeyaBtn').onclick = async () => {
       // Récupérer les valeurs demandées
       const boardSelect = document.getElementById('boardSelect');
-      normalizeSelect(boardSelect);
-      const iobeya_board_id = boardSelect.value || null;
+      const iobeya_board_id = boardSelect.value;
       const iobeya_room_id = document.getElementById('roomSelect').value;
-
-      const iobeya_board_container = (function(){
-        if (!iobeya_board_id) return null;
-        const containerStr = boardSelect.options[boardSelect.selectedIndex].dataset.container || null;
-        if (!containerStr) return null;
-        try { return JSON.parse(containerStr); } catch(e) { return null; }
-      })();
-
-      const githubSelect = document.getElementById('githubSelect');
-      normalizeSelect(githubSelect);
-      const github_project_id = githubSelect.value || null;
+      const containerStr =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
+      const iobeya_board_container = JSON.parse(containerStr);
+      const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
       const pi = document.getElementById('piInput').value;
 
@@ -963,12 +636,7 @@
         return;
       }
 
-      if (!iobeya_board_id) {
-        alert("Sélectionnez un board iObeya (ou laissez 'Sans action' et utilisez un autre bouton). ");
-        return;
-      }
-
-      if (!confirm("⚠️ Cette action synchronisera les features vers iObeya. Continuer ?")) return;
+      if (!confirm("⚠️ Cette action synchronisera les features vers la destination (iObeya + GitHub). Continuer ?")) return;
       const body = {
         ...lastVerification,
         epic_id: document.getElementById('epicSelect').value,
@@ -983,63 +651,29 @@
         action: "pushToIobeyaBtn",
       };
 
-      let res;
-      let payload;
-      try {
-        showLoading('Synchronisation vers iObeya…');
-        res = await fetch('/sync', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(body)
-        });
-
-        payload = await res.json().catch(() => ({}));
-      } finally {
-        hideLoading();
-      }
-
-      if (!res.ok) {
-        console.error('❌ Erreur /sync (pushToIobeyaBtn):', res.status, payload);
-        alert('❌ Erreur pendant la synchronisation. Consultez la console.');
-        return;
-      }
-
-      // Une synchro terminée invalide la préparation courante et force une nouvelle préparation.
-      invalidateVerification();
-
-      const resultContainer = document.getElementById('results');
-      if (resultContainer) resultContainer.textContent = '';
-
-      alert('Synchronisation complète effectuée. Relancez "Préparer Synchro" pour continuer.');
+      const res = await fetch('/sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      await res.json();
+      alert('Synchronisation complète effectuée.');
     };
 
     document.getElementById('pushToGithubBtn').onclick = async () => {
       // Récupérer les valeurs demandées
       const boardSelect = document.getElementById('boardSelect');
-      normalizeSelect(boardSelect);
-      const iobeya_board_id = boardSelect.value || null;
+      const iobeya_board_id = boardSelect.value;
       const iobeya_room_id = document.getElementById('roomSelect').value;
-
-      const iobeya_board_container = (function(){
-        if (!iobeya_board_id) return null;
-        const containerStr = boardSelect.options[boardSelect.selectedIndex].dataset.container || null;
-        if (!containerStr) return null;
-        try { return JSON.parse(containerStr); } catch(e) { return null; }
-      })();
-
-      const githubSelect = document.getElementById('githubSelect');
-      normalizeSelect(githubSelect);
-      const github_project_id = githubSelect.value || null;
+      const containerStr =
+        boardSelect.options[boardSelect.selectedIndex].dataset.container;
+      const iobeya_board_container = JSON.parse(containerStr);
+      const github_project_id = document.getElementById('githubSelect').value;
       const rename_deleted = document.getElementById('delCheckbox').checked;
       const pi = document.getElementById('piInput').value;
 
       if (!lastVerification) {
         alert("Veuillez d'abord cliquer sur 'Préparer Synchro' avant de synchroniser.");
-        return;
-      }
-
-      if (!github_project_id) {
-        alert("Sélectionnez un projet GitHub (ou laissez 'Sans action' et utilisez un autre bouton). ");
         return;
       }
 
@@ -1058,34 +692,13 @@
         action: "pushToGithubBtn",
       };
 
-      let res;
-      let payload;
-      try {
-        showLoading('Synchronisation vers GitHub…');
-        res = await fetch('/sync', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(body)
-        });
-
-        payload = await res.json().catch(() => ({}));
-      } finally {
-        hideLoading();
-      }
-
-      if (!res.ok) {
-        console.error('❌ Erreur /sync (pushToGithubBtn):', res.status, payload);
-        alert('❌ Erreur pendant la synchronisation. Consultez la console.');
-        return;
-      }
-
-      // Une synchro terminée invalide la préparation courante et force une nouvelle préparation.
-      invalidateVerification();
-
-      const resultContainer = document.getElementById('results');
-      if (resultContainer) resultContainer.textContent = '';
-
-      alert('Synchronisation complète effectuée. Relancez "Préparer Synchro" pour continuer.');
+      const res = await fetch('/sync', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      await res.json();
+      alert('Synchronisation complète effectuée.');
     };
 </script>
 

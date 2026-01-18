@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger("sync_grist")
     
 from sync.sync_iobeya import (
-    iobeya_update_feature_card_title_prefix
+    iobeya_update_object_title_prefix
 )    
 
 from sync.sync_github import (
@@ -401,7 +401,7 @@ def grist_create_epic_objects(grist_conf, iobeya_conf,github_conf,context):
         # valeurs optionnelles
         Hypotheses_de_gain = object.get("Hypotheses_de_gain", None)
         Criteres_d_acceptation = object.get("Criteres_d_acceptation", None)
-        Commited = object.get("Commited", None)
+        Committed = object.get("Committed", None)
 
         # calcul de l'identifiant numérique de l'objet à créer (on prend la valeur max + 1)
         next_id = int(max_ids.get(type, 0)) + 1
@@ -422,7 +422,7 @@ def grist_create_epic_objects(grist_conf, iobeya_conf,github_conf,context):
             Hypotheses_de_gain=Hypotheses_de_gain,
             Criteres_d_acceptation=Criteres_d_acceptation,
             Commentaires=f"Créé via synchronisation depuis {source}, le {datetime.now().strftime('%Y-%m-%d')}",
-            Commited=Commited
+            Committed=Committed
         )
         
         # ajouter les informations de source / contexte si besoin
@@ -436,13 +436,27 @@ def grist_create_epic_objects(grist_conf, iobeya_conf,github_conf,context):
             if type == "Features":
                 id_objet_prefix = f"FP{pi_Num}-{id3_str}"
             if type == "Dependances":
-                id_objet_prefix = f"DP{pi_Num}-{epic_id}-R{id3_str}"
-            if type == "Risques":
-                prefix = "TObjP" if str(Commited).strip().lower() == "commited" else "uTObjP"  # TODO: prefix non utilisé ?
-                id_objet_prefix = f"RP{pi_Num}-{epic_id}-R{id3_str}"
-            if type == "Issues":
-                id_objet_prefix = f"IssueP{pi_Num}-{epic_id}-R{id3_str}"
+                id_objet_prefix = f"DP{pi_Num}-{id3_str}"
+            if type == "Objectives":
+                cmt = str(Committed).strip().lower()
+                
+                COMMITTED_VALUES = {
+                    "committed",
+                    "yes",
+                    "oui",
+                    "true",
+                    "1",
+                    "x"
+                }
 
+                prefix = "TObjP" if cmt in COMMITTED_VALUES else "uTObjP"
+                id_objet_prefix = f"{prefix}{pi_Num}-{id3_str}"
+            if type == "Issues":
+                id_objet_prefix = f"IssueP{pi_Num}-{id3_str}"
+            if type == "Risques":
+                id_objet_prefix = f"RP{pi_Num}-{id3_str}"
+                                
+                
             result["id_Objet"] = id_objet_prefix
             result["source"] = source
 
@@ -460,7 +474,7 @@ def grist_create_epic_objects(grist_conf, iobeya_conf,github_conf,context):
                 iobeya_api_token = iobeya_conf.get("api_token", [])
                 object_id = object.get("uid", "")
                 new_title = f"[{id_objet_prefix}] : {Nom}"
-                res = iobeya_update_feature_card_title_prefix(iobeya_api_url, iobeya_api_token, new_title, object_id)
+                res = iobeya_update_object_title_prefix(iobeya_api_url, iobeya_api_token, new_title, object_id)
                 result["update_iobeyacard_title"] = res
 
             if source == "github":
@@ -497,7 +511,7 @@ def grist_create_object(
     type, Epic, pi_Num , id_Num, timestamp ,
     Nom , Description ,
     Hypotheses_de_gain , Criteres_d_acceptation ,
-    Commentaires, Commited
+    Commentaires, Committed
 ):
 
     headers = {
@@ -516,7 +530,7 @@ def grist_create_object(
         "Hypotheses_de_gain": Hypotheses_de_gain,
         "Commentaires": Commentaires,
         "Criteres_d_acceptation": Criteres_d_acceptation,
-        "Commited": Commited,
+        "Committed": Committed,
         "timestamp": timestamp,
     }
 

@@ -12,8 +12,13 @@ def extract_id_and_clean_for_kind(text, kind=None):
     
     Rules (case-insensitive):
       - feature tag: [Feat] ; feature id: [FP<pi>-<item>]
-      - risk tag:    [Rsk] ou [Risk]  ; risk id:    [RP<pi>-<item>]
-      - dep tag:     [DP]   ; dep id:     [DP<pi>-<item>]
+      - risk tag:    [Rsk] ou [Risk]
+      - risk id:     [RP<pi>-<item>]
+      - risk id+:    [RP<pi>-E-<epic>-<item>], [RiskP<pi>-E-<epic>-<item>] (E-001 ou E001 acceptés)
+      
+      - dep tag:     [DP]
+      - dep id:      [DP<pi>-<item>]
+      - dep id+:     [DP<pi>-E-<epic>-R<item>], [DP<pi>-E<epic>-R<item>] (E-001 ou E001 acceptés)
       - tobj tag:    [TObj] ; tobj id:    [TObjP<pi>-<item>]
       - utobj tag:   [uTObj]; utobj id:   [uTObjP<pi>-<item>]
       - issue tag:   [Bug], [Issue]; issue id: [IssueP<pi>-<item>]
@@ -35,7 +40,9 @@ def extract_id_and_clean_for_kind(text, kind=None):
     id_fp_re = re.compile(r"^FP(\d+)-(\d+)$", re.IGNORECASE)
     id_fp_short_re = re.compile(r"^FP-(\d+)$", re.IGNORECASE)
     id_rp_re = re.compile(r"^RP(\d+)-(\d+)$", re.IGNORECASE)
+    id_rp_epic_re = re.compile(r"^(?:RP|RiskP)(\d+)?-E-?(\d+)-(\d+)$", re.IGNORECASE)
     id_dp_re = re.compile(r"^DP(\d+)-(\d+)$", re.IGNORECASE)
+    id_dp_epic_re = re.compile(r"^DP(\d+)?-E-?(\d+)-R?(\d+)$", re.IGNORECASE)
     id_tobj_re = re.compile(r"^TObjP(\d+)-(\d+)$", re.IGNORECASE)
     id_utobj_re = re.compile(r"^uTObjP(\d+)-(\d+)$", re.IGNORECASE)
     id_issue_re = re.compile(r"^IssueP(\d+)-(\d+)$", re.IGNORECASE)
@@ -84,11 +91,29 @@ def extract_id_and_clean_for_kind(text, kind=None):
             token_to_remove = m.group(0)
             break
 
+        m_rp_epic = id_rp_epic_re.match(token)
+        if m_rp_epic:
+            detected_kind = "Risques"
+            # group(1) is optional PI number (e.g., RiskP3-...), group(2) is epic (E-001/E001), group(3) is item
+            pi_number = int(m_rp_epic.group(1)) if m_rp_epic.group(1) else 0
+            item_number = int(m_rp_epic.group(3))
+            token_to_remove = m.group(0)
+            break
+
         m_dp = id_dp_re.match(token)
         if m_dp:
             detected_kind = "Dependances"
             pi_number = int(m_dp.group(1))
             item_number = int(m_dp.group(2))
+            token_to_remove = m.group(0)
+            break
+
+        m_dp_epic = id_dp_epic_re.match(token)
+        if m_dp_epic:
+            detected_kind = "Dependances"
+            # group(1) is optional PI number, group(2) is epic (E-001/E001), group(3) is item (R001 or 001)
+            pi_number = int(m_dp_epic.group(1)) if m_dp_epic.group(1) else 0
+            item_number = int(m_dp_epic.group(3))
             token_to_remove = m.group(0)
             break
 

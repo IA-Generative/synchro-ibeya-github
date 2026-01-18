@@ -3,12 +3,19 @@
 ## Description
 Ce projet permet de synchroniser automatiquement les **features** issues de **Grist**
 vers un **panneau iObeya** et un **projet GitHub**, via une interface Web Flask.
+L’interface gère désormais la **synchronisation étatful**, les **projets GitHub multi-repositories**, ainsi qu’un **contrôle fin des actions de synchronisation** (pull/push par cible).
 
 ### Fonctionnalités
 - Sélection de l'épic, de la source Grist, de la room iObeya et du projet GitHub.
 - Vérification des changements avant synchronisation.
 - Synchronisation normale ou forcée (écrasement complet des destinations).
 - Option pour renommer les éléments supprimés avec le préfixe `del_`.
+- Gestion d’un cycle de synchronisation explicite : préparation obligatoire, invalidation automatique après modification des paramètres.
+- Boutons d’actions indépendants (pull Grist, push iObeya, push GitHub) avec verrouillage automatique selon l’état de préparation.
+- Support des projets GitHub multi-repositories (mono-repo sélectionné automatiquement si nécessaire).
+- Enrichissement GitHub : récupération des identifiants REST et GraphQL des issues, mise à jour des titres et labels (ex. `Feature`).
+- Gestion des labels GitHub personnalisés (création, vérification, couleur).
+- Télémetrie et logs de debug privilégiés côté front (pas de pop‑up bloquant).
 
 ## Installation
 ```bash
@@ -16,10 +23,42 @@ pip install -r requirements.txt
 ```
 
 ## Lancement
+En mode développeur, le lancement s'effectue depuis Vscode en mode debug ou non
+Ou bien directement depuis une ligne de commande.
+
 ```bash
 python -m webapp.app
 ```
-Puis ouvrez avec votre navigateur l'emplacement [http://localhost:8080](http://localhost:8080) si utilisation en local ou à l'emplacement hébergé sur un serveur.
+Le lanceur vous donne les informations sur l'adresse d'écoute de l'application, ex: 
+2026-01-18 22:10:08,277 [INFO] 🚀 (server) Flask sur le port 443 (HTTPS)
+ * Serving Flask app 'app'
+ * Debug mode: off
+
+En mode debug le port est 8443 qui ne nécessite pas les droits root sur la machine.
+
+Attention : 
+Pour fonctionner cela nécessite des certificats + un fichier de configuration avec les paramètres positionnés vers vos environnements. 
+- voir le dossier ./deploy qui contient les instructions et script nécessaires pour générer les certificats. ( explications en bas de page )
+- voir également le fichier d'exemple config.example.yml. 
+
+Note: il est recommandé de positionner les secrets dans les variables d'env > cf le code + config.example.yml pour le nom des variables. ( texte en majuscule)
+
+Pour vos tests, pour effacer l'ensemble des Issues d'un repository.
+voir le script dans le répertoire ./exemple/
+
+Nécessite de placer l'apikey et de spécifier le repository (changer par le votre) :
+
+```
+
+export GITHUB_TOKEN="ghp_..."   # token avec droits suffisants sur le repo
+
+python3 delete_issues.py --repo IA-Generative/default_repository --dry-run --repo <owner>/<repo>
+python3 delete_issues.py --repo IA-Generative/default_repository --repo <owner>/<repo>
+python3 delete_issues.py --repo IA-Generative/default_repository --yes
+```
+
+En développement ouvrez avec votre navigateur l'emplacement localhost
+[https://localhost:8443](https://localhost:8443) si utilisation en local ou à l'emplacement hébergé sur un serveur.
 
 ## Utilisation et logique du projet
 
@@ -52,17 +91,74 @@ La synchronisation repose sur une logique de comparaison :
      - la **Room iObeya**, puis le **Board** cible. (les rooms et les boards sont chargés dynamiquement),
      - l'organisation, puis le **projet GitHub** correspondant.  (les projets sont chargés dynamiquement depuis l'organisation sélectionnée)
    Ces menus sont automatiquement alimentés via les API respectives.
+   Toute modification d’un paramètre invalide automatiquement la préparation précédente et force une nouvelle phase de préparation avant synchronisation.
+
+Positionner les menus  **Board iObeya** ou **projet GitHub** à **"Sans action"** pour ne pas prendre en compte le système dans la synchronisation.
 
 2. **Préparation**
    - Cliquez sur le bouton **« Préparer »** pour charger et comparer les données entre les trois systèmes, sans effectuer de synchronisation.
    - Un tableau récapitulatif s’affiche, indiquant les différences détectées (ajouts, modifications, suppressions).
    - Vous pouvez ainsi visualiser les écarts avant toute action.
    - le bouton **Télécharger JSON...** permet de télécharger l'ensemble des différences pour aider à la vérification ou sauvegarde des données manipulées.
+   - La préparation fige l’état des données ; toute modification ultérieure désactive les actions de synchronisation jusqu’à relance.
 
 3. **Synchronisation**
-   - **« Synchroniser »** : met à jour les éléments des systèmes cibles uniquement là où des différences existent.  
+   - Actions ciblées : synchronisation vers iObeya et/ou GitHub selon les boutons activés.
    - **« Synchronisation forcée »** : écrase totalement les données des destinations avec celles de Grist (⚠️ à utiliser avec prudence).  
    - Si la case **« Renommer les éléments supprimés »** est cochée, les éléments supprimés seront renommés avec le préfixe `del_` au lieu d’être supprimés définitivement.
+
+
+### 3. A savoir dans l'utilisation de Github & Iobeya
+
+Le systeme génère des identifiant à chaque objet de la forme **'[(x)P(pi num)-(identifiant)]'**, ex: FP6-053 ou TObjP6-001
+
+x : prend F comme feature, TObj/uTObj pour les objectifs, R pour risques, Issue pour bug/issue D pour dépendance.
+
+Lorsqu'une card / issue est créé la convention suivante est mise en oeuvre cela permet d'importer automatiquement dans grist les objets. ( voir sync/sync_utils.py )
+ de synchro interprête les en-tete suivant et les transforme en objet dans Grist.
+ 
+    Rules (case-insensitive):
+      - feature tag: [Feat]
+      - risk tag:    [Rsk] ou [Risk]
+      - dependance  tag:  [DP]
+      - team objective committed tag:    [TObj] 
+      - team objective uncommitted tag   [uTObj]
+      - issue tag:   [Bug], [Issue] 
+
+    Par exemple, l'en-tête suivant permet de reconnaitre un objectif d'équipe "Committed":
+
+    [TObj] : En tant que PO xxx , j'anime les deux communautés des xxx et des xxx pour impulser la transformation numérique par la donnée, identifier les irritants rencontrés et les traiter  
+
+
+**Exemple d'issue dans github :**
+
+![Issue github](images/issue-github.png)
+
+**Exemple d'objectif dans iObeya :**
+Utilisez l'outil "texte libre"
+
+![Objectifs Iobeya](images/piobj.png)
+
+**Exemple de risk & dépendance dans iObeya :**
+Utilisez les outils "Notes" ou "Card" ou "Feature Card"
+
+![risk & dépendance Iobeya](images/dep-risk.png)
+
+Dans iobeya, en lecture les objets Freetext, NoteCard, Cards et Feature cards sont prises en compte. Dans le cas d'utilisation de card feature, les checklists hypthèses/critères sont gérées. 
+Dans github seuls les issues sont gérés, le système ajoute le tag "feature".
+
+En écriture depuis grist vers iobeya & github seules les "Features" sont poussées.
+
+
+
+### 4. Logique d’état et sécurité
+
+L’interface repose sur une logique d’état stricte :
+- aucune synchronisation n’est autorisée sans préparation valide ;
+- toute modification de sélection invalide l’état courant ;
+- les actions interdites sont visuellement désactivées.
+
+Les accès API respectent un principe de moindre privilège (tokens GitHub fine‑grained, accès en écriture limité aux besoins).
 
 4. **Sauvegarde des préférences**
    - Les sélections (Epic, room, projet, etc.) peuvent être enregistrées dans un **cookie** via le bouton **« Sauvegarder les préférences »**, puis restaurées avec **« Charger les préférences »** au prochain démarrage.
@@ -211,6 +307,10 @@ L’application sera alors disponible en :
   ```
 
 ---
+
+### ❓ Les boutons sont désactivés après un changement de menu
+**Cause :** la préparation précédente a été invalidée.
+**Solution :** relancez simplement l’étape « Préparer » avant toute synchronisation.
 
 ### ❓ *Erreur :* `KeyError: 'WERKZEUG_SERVER_FD'`
 **Cause :** conflit entre le reloader interne de Flask et HTTPS.  

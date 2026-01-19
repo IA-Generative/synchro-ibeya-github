@@ -60,13 +60,14 @@ python3 delete_issues.py --repo IA-Generative/default_repository --yes
 En développement ouvrez avec votre navigateur l'emplacement localhost
 [https://localhost:8443](https://localhost:8443) si utilisation en local ou à l'emplacement hébergé sur un serveur.
 
-## Utilisation et logique du projet
+## 1. Utilisation et logique de fonctionnement
 
 Vous accédez alors à l’interface Web complète de synchronisation entre **Grist**, **iObeya** et **GitHub**.
 
 ![Interface Web de synchronisation](images/screen.png)
 
-### 1. Logique générale
+**Logique générale d'utilisation**
+---
 
 Le projet vise à centraliser la gestion des **features** (fonctionnalités, user stories, etc.) présentes dans trois outils distincts :  
 - **Grist** (base de référence)  
@@ -78,7 +79,17 @@ La synchronisation repose sur une logique de comparaison :
 - Les différences (ajouts, suppressions, modifications) sont **analysées et affichées**.
 - L’utilisateur décide ensuite de **synchroniser dans un sens ou dans l’autre**, selon les besoins.
 
-### 2. Étapes d’utilisation
+**L’interface repose sur une logique d’état :**
+- la synchronisation n’est possible que si une préparation a été lancée ;
+- toute modification de sélection invalide l’état courant ;
+- les actions qui ne sont pas possibles sont visuellement désactivées.
+
+**Sauvegarde des préférences**
+   - Les sélections (Epic, room, projet, etc.) peuvent être enregistrées dans un **cookie** via le bouton **« Sauvegarder les préférences »**, puis restaurées avec **« Charger les préférences »** au prochain démarrage.
+   - Le bouton **« Supprimer les préférences »** efface le cookie enregistré.
+
+
+### Étapes d’utilisation
 
 0. **Accéder à l'url du front**
     La page se charge et récupère via les API respectives les premières informations.
@@ -108,7 +119,7 @@ Positionner les menus  **Board iObeya** ou **projet GitHub** à **"Sans action"*
    - Si la case **« Renommer les éléments supprimés »** est cochée, les éléments supprimés seront renommés avec le préfixe `del_` au lieu d’être supprimés définitivement.
 
 
-### 3. A savoir dans l'utilisation de Github & Iobeya
+### ℹ️ A savoir dans l'utilisation de Github & Iobeya pour permettre une bonne prise en compte des objects  
 
 Le systeme génère des identifiant à chaque objet de la forme **'[(x)P(pi num)-(identifiant)]'**, ex: FP6-053 ou TObjP6-001
 
@@ -144,27 +155,45 @@ Utilisez les outils "Notes" ou "Card" ou "Feature Card"
 
 ![risk & dépendance Iobeya](images/dep-risk.png)
 
-Dans iobeya, en lecture les objets Freetext, NoteCard, Cards et Feature cards sont prises en compte. Dans le cas d'utilisation de card feature, les checklists hypthèses/critères sont gérées. 
-Dans github seuls les issues sont gérés, le système ajoute le tag "feature".
+## A prendre en compte lors de la création des objets dans Iobeya et Github
 
-En écriture depuis grist vers iobeya & github seules les "Features" sont poussées.
+  **Dans iobeya**, utilisez les objets de nature : **Freetext, NoteCard, Cards et Feature cards**. (cf. exemples ci-dessus )
+
+  Dans **Github** seuls les **objets** issues sont gérés (PR ignoré).
+
+  Lors d'un import vers **Grist** les éléments sont renommés avec un num d'objet automatiquement et l'élément original est mis à jour. Sur Github le tag **Feature** est ajouté au repository et à l'issue.
+
+  En écriture depuis **Grist** vers **iObeya** & **Github** seules les **"Features"** sont poussées.
+
+⚠️ IMPORTANT : ne mettre qu'un seul sujet par objet, dans l'exemple ci-dessous, seule la première ligne sera prise en compte.
+
+![Multiple](images/exemple-notgood.png)
 
 
+### 4. Génération des tokens 
 
-### 4. Logique d’état et sécurité
 
-L’interface repose sur une logique d’état stricte :
-- aucune synchronisation n’est autorisée sans préparation valide ;
-- toute modification de sélection invalide l’état courant ;
-- les actions interdites sont visuellement désactivées.
-
-Les accès API respectent un principe de moindre privilège (tokens GitHub fine‑grained, accès en écriture limité aux besoins).
-
-4. **Sauvegarde des préférences**
-   - Les sélections (Epic, room, projet, etc.) peuvent être enregistrées dans un **cookie** via le bouton **« Sauvegarder les préférences »**, puis restaurées avec **« Charger les préférences »** au prochain démarrage.
-   - Le bouton **« Supprimer les préférences »** efface le cookie enregistré.
-
+Dans **Grist**
 ---
+
+Créez un profil dédié à l'API et générez un token, puis récupérer le l'identifiant du document dans paramètre.
+
+![Token Iobeya](images/token-grist.png)
+
+
+Dans **Github**
+---
+
+Dans github, les accès API respectent un principe de moindre privilège (tokens Git
+![Token Github](images/permissions-github.png)
+
+Dans **iObeya**
+---
+
+Créez un utilisateur dédié à la synchro avec les droits juste nécessaire.
+
+![Token Iobeya](images/token-iobeya.png)
+
 
 ## Exécution en HTTPS
 

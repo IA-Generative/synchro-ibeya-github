@@ -65,6 +65,17 @@ secret:
     GITHUB_TOKEN: ""
     IOBEYA_TOKEN: ""
 
+# Environment variables loaded from secrets/configmaps
+# This allows flexible configuration with multiple sources
+envFrom: []
+  # Example with multiple secrets:
+  # - secretRef:
+  #     name: synchro-iobeya-github-secrets
+  # - secretRef:
+  #     name: additional-tokens
+  # - configMapRef:
+  #     name: app-config
+
 # Inline content of config.yaml (mounted as /app/config.yaml)
 # You can also set this with: --set-file config=./config.yaml
 config: |

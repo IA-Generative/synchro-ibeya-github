@@ -24,9 +24,14 @@ spec:
             - containerPort: {{ .Values.service.targetPort }}
               name: http
               protocol: TCP
+          {{- if .Values.envFrom }}
+          envFrom:
+            {{- toYaml .Values.envFrom | nindent 12 }}
+          {{- else }}
           envFrom:
             - secretRef:
                 name: {{ .Values.secret.existingSecret | default .Values.secret.name }}
+          {{- end }}
           volumeMounts:
             - name: config
               mountPath: /app/config.yaml

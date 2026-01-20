@@ -204,6 +204,10 @@
           "type": "string",
           "description": "Secret name"
         },
+        "existingSecret": {
+          "type": "string",
+          "description": "Name of existing secret to use instead"
+        },
         "env": {
           "type": "object",
           "properties": {
@@ -223,6 +227,49 @@
         }
       },
       "required": ["create", "name"]
+    },
+    "envFrom": {
+      "type": "array",
+      "description": "List of sources to populate environment variables (secretRef or configMapRef)",
+      "items": {
+        "type": "object",
+        "oneOf": [
+          {
+            "properties": {
+              "secretRef": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "optional": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["name"]
+              }
+            },
+            "required": ["secretRef"]
+          },
+          {
+            "properties": {
+              "configMapRef": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "optional": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["name"]
+              }
+            },
+            "required": ["configMapRef"]
+          }
+        ]
+      }
     },
     "config": {
       "type": "string",

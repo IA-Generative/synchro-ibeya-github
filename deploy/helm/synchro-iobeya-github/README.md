@@ -28,13 +28,32 @@ helm install synchro-iobeya-github ./synchro-iobeya-github \
 
 ### Using External Secrets
 
-For production deployments, it's recommended to use an external secret management solution:
+For production deployments, it's recommended to use an external secret management solution.
 
+**Option 1: Simple existing secret**
 ```yaml
 # custom-values.yaml
 secret:
   create: false
-  existingSecret: "synchro-iobeya-github-secrets"  # Pre-created secret
+  existingSecret: "synchro-iobeya-github-secrets"
+```
+
+**Option 2: Multiple secrets with envFrom (more flexible)**
+```yaml
+# custom-values.yaml
+secret:
+  create: false  # Don't create the default secret
+
+envFrom:
+  - secretRef:
+      name: app-tokens          # Contains ACCESS_KEY
+  - secretRef:
+      name: github-credentials  # Contains GITHUB_TOKEN
+  - secretRef:
+      name: iobeya-credentials  # Contains IOBEYA_TOKEN
+  - configMapRef:
+      name: app-config          # Additional non-sensitive config
+      optional: true
 ```
 
 ## Configuration
@@ -66,6 +85,7 @@ The following table lists the configurable parameters and their default values:
 | `podDisruptionBudget.minAvailable` | Minimum available pods | `1` |
 | `secret.create` | Create secret resource | `true` |
 | `secret.existingSecret` | Use existing secret | `""` |
+| `envFrom` | List of secretRef/configMapRef sources | `[]` |
 
 ## Security Features
 
@@ -156,6 +176,46 @@ curl http://localhost:8080/healthz
 
 This chart includes a `values.schema.json` file that validates your configuration during installation. If you provide invalid values, Helm will reject the installation with a clear error message.
 
+## Environment Variables Configuration
+
+### Using envFrom (Recommended for Production)
+
+The `envFrom` parameter provides maximum flexibility by allowing multiple secrets and configMaps:
+
+```yaml
+# values.yaml
+envFrom:
+  - secretRef:
+      name: app-credentials
+  - secretRef:
+      name: external-api-tokens
+  - configMapRef:
+      name: app-settings
+      optional: true  # Won't fail if ConfigMap doesn't exist
+```
+
+**Benefits:**
+- Separate concerns (different secrets for different APIs)
+- Mix secrets and ConfigMaps
+- Support optional sources
+- Easy integration with external secret operators
+
+### Using Default Secret (Simple Deployments)
+
+For simple deployments, the default secret creation works out of the box:
+
+```yaml
+secret:
+  create: true
+  name: synchro-iobeya-github-secrets
+  env:
+    ACCESS_KEY: "your-key"
+    GITHUB_TOKEN: "ghp_..."
+    IOBEYA_TOKEN: "..."
+```
+
+**Note:** When `envFrom` is specified, it takes precedence over the default secret reference.
+
 ## External Secret Management
 
 For production deployments, consider using:
@@ -164,28 +224,52 @@ For production deployments, consider using:
 - **External Secrets Operator**: Sync from external secret stores (Vault, AWS Secrets Manager, etc.)
 - **Kubernetes Secrets CSI Driver**: Mount secrets from external sources
 
-Example with External Secrets Operator:
+### Example with External Secrets Operator
 
 ```yaml
+# external-secret.yaml
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
-  name: synchro-iobeya-github-secrets
+  name: synchro-github-token
 spec:
   secretStoreRef:
     name: vault-backend
   target:
-    name: synchro-iobeya-github-secrets
+    name: synchro-github-token
   data:
-    - secretKey: ACCESS_KEY
-      remoteRef:
-        key: synchro/access-key
     - secretKey: GITHUB_TOKEN
       remoteRef:
         key: synchro/github-token
+
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: synchro-iobeya-token
+spec:
+  secretStoreRef:
+    name: vault-backend
+  target:
+    name: synchro-iobeya-token
+  data:
     - secretKey: IOBEYA_TOKEN
       remoteRef:
         key: synchro/iobeya-token
+```
+
+```yaml
+# values.yaml
+secret:
+  create: false
+
+envFrom:
+  - secretRef:
+      name: synchro-github-token   # Managed by External Secrets Operator
+  - secretRef:
+      name: synchro-iobeya-token   # Managed by External Secrets Operator
+  - secretRef:
+      name: synchro-access-key     # Manually created
 ```
 
 ## License

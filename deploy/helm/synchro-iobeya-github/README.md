@@ -55,6 +55,13 @@ The following table lists the configurable parameters and their default values:
 | `resources.limits.memory` | Memory limit | `512Mi` |
 | `resources.requests.cpu` | CPU request | `100m` |
 | `resources.requests.memory` | Memory request | `128Mi` |
+| `securityContext.runAsNonRoot` | Run as non-root user | `true` |
+| `securityContext.runAsUser` | User ID to run as | `10001` |
+| `securityContext.fsGroup` | File system group ID | `10001` |
+| `securityContext.seccompProfile.type` | Seccomp profile type | `RuntimeDefault` |
+| `containerSecurityContext.allowPrivilegeEscalation` | Allow privilege escalation | `false` |
+| `containerSecurityContext.capabilities.drop` | Capabilities to drop | `["ALL"]` |
+| `containerSecurityContext.readOnlyRootFilesystem` | Read-only root filesystem | `false` |
 | `podDisruptionBudget.enabled` | Enable PDB | `false` |
 | `podDisruptionBudget.minAvailable` | Minimum available pods | `1` |
 | `secret.create` | Create secret resource | `true` |
@@ -64,12 +71,33 @@ The following table lists the configurable parameters and their default values:
 
 This chart implements several security best practices:
 
-- **Security Context**: Runs as non-root user (UID 10001)
-- **Read-Only Root Filesystem**: Container filesystem protection
-- **Drop All Capabilities**: Minimal Linux capabilities
-- **Seccomp Profile**: Runtime security profile
+- **Pod Security Context**: Configurable non-root user (default UID 10001)
+- **Container Security Context**: Drop all capabilities by default
+- **No Privilege Escalation**: Prevents container from gaining additional privileges
+- **Seccomp Profile**: RuntimeDefault profile for enhanced security
 - **Resource Limits**: Prevents resource exhaustion
 - **Health Probes**: Automatic pod health monitoring
+
+### Customizing Security Context
+
+You can customize the security settings:
+
+```yaml
+# values.yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000  # Custom UID
+  fsGroup: 1000    # Custom group
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false  # Set to true if your app supports it
+```
+
+**Note**: Ensure the Docker image's user matches `runAsUser` or use a user that exists in the container.
 
 ## Health Checks
 

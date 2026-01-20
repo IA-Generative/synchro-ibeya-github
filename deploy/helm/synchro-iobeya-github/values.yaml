@@ -29,6 +29,21 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

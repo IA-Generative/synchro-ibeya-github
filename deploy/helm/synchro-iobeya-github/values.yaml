@@ -21,16 +21,30 @@ ingress:
           pathType: Prefix
   tls: []
 
-resources: {}
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
 
 nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
 # Secret environment variables (ACCESS_KEY and tokens)
+# Set create: false and specify existingSecret to use an external secret (e.g., Sealed Secrets, External Secrets Operator)
 secret:
   create: true
   name: synchro-iobeya-github-secrets
+  # existingSecret: ""  # Use this to reference an existing secret instead of creating one
   env:
     ACCESS_KEY: ""
     GITHUB_TOKEN: ""

@@ -62,6 +62,13 @@ En développement ouvrez avec votre navigateur l'emplacement localhost
 
 ## 1. Utilisation et logique de fonctionnement
 
+La solution est intégré à l'univers Grist à travers un widget.
+
+L'ensembles des objets manipulés sont visibles sur la barre latérale. ( features, Epics, Dépendances, Team Objectives, etc... )
+
+![Interface Web  Grist](images/grist-integre.png)
+
+
 Vous accédez alors à l’interface Web complète de synchronisation entre **Grist**, **iObeya** et **GitHub**.
 
 ![Interface Web de synchronisation](images/screen.png)

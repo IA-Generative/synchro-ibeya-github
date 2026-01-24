@@ -1,10 +1,46 @@
-Thank you for installing Synchro iObeya ↔ GitHub!
+================================================================================
+  Synchro iObeya - GitHub successfully installed!
+================================================================================
 
-1) Ensure the Service is reachable:
-   kubectl get svc -n {{ .Release.Namespace }}
+Chart Version: {{ .Chart.Version }}
+App Version:   {{ .Chart.AppVersion }}
+Release Name:  {{ .Release.Name }}
+Namespace:     {{ .Release.Namespace }}
 
-2) If Ingress is enabled, browse:
-   http(s)://<host>/?key=<ACCESS_KEY>
+DEPLOYMENT STATUS:
+  kubectl get all -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
 
-3) Logs:
-   kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "synchro-iobeya-github.fullname" . }} -f
+POD HEALTH:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "synchro-iobeya-github.name" . }}
+
+{{- if .Values.ingress.enabled }}
+ACCESS THE APPLICATION:
+  {{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/?key=<YOUR_ACCESS_KEY>
+  {{- end }}
+{{- else }}
+ACCESS THE APPLICATION (port-forward):
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "synchro-iobeya-github.fullname" . }} 8080:{{ .Values.service.port }}
+  Then browse to: http://localhost:8080/?key=<YOUR_ACCESS_KEY>
+{{- end }}
+
+VIEW LOGS:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "synchro-iobeya-github.name" . }} -f
+
+CHECK HEALTH ENDPOINT:
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "synchro-iobeya-github.fullname" . }} -- curl http://localhost:{{ .Values.service.targetPort }}/healthz
+
+CONFIGURATION RESOURCES:
+  - ConfigMap: {{ include "synchro-iobeya-github.fullname" . }}
+  - Secret:    {{ .Values.secret.name }}
+
+IMPORTANT NOTES:
+  1. Ensure all secrets are configured in {{ .Values.secret.name }}:
+     - ACCESS_KEY
+     - GITHUB_TOKEN
+     - IOBEYA_TOKEN
+  2. Update config.yaml in the ConfigMap with your environment details
+  3. The application requires a valid access key to authenticate
+
+For more information, check the application logs or documentation.
+================================================================================

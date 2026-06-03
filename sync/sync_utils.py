@@ -19,8 +19,8 @@ def extract_id_and_clean_for_kind(text, kind=None):
       - dep tag:     [DP]
       - dep id:      [DP<pi>-<item>]
       - dep id+:     [DP<pi>-E-<epic>-R<item>], [DP<pi>-E<epic>-R<item>] (E-001 ou E001 acceptés)
-      - tobj tag:    [TObj] ; tobj id:    [TObjP<pi>-<item>]
-      - utobj tag:   [uTObj]; utobj id:   [uTObjP<pi>-<item>]
+      - tobj tag:    [TObj] ; tobj id:    [TObjP<pi>-<item>] ou [TObj<item>]
+      - utobj tag:   [uTObj] ou [uObj]; utobj id: [uTObjP<pi>-<item>] / [uObjP<pi>-<item>] ou [uTObj<item>] / [uObj<item>]
       - issue tag:   [Bug], [Issue]; issue id: [IssueP<pi>-<item>]
 
     Behavior:
@@ -43,18 +43,20 @@ def extract_id_and_clean_for_kind(text, kind=None):
     id_rp_epic_re = re.compile(r"^(?:RP|RiskP)(\d+)?-E-?(\d+)-(\d+)$", re.IGNORECASE)
     id_dp_re = re.compile(r"^DP(\d+)-(\d+)$", re.IGNORECASE)
     id_dp_epic_re = re.compile(r"^DP(\d+)?-E-?(\d+)-R?(\d+)$", re.IGNORECASE)
+    id_tobj_short_re = re.compile(r"^TObj(\d+)$", re.IGNORECASE)
+    id_utobj_short_re = re.compile(r"^(?:uTObj|uObj)(\d+)$", re.IGNORECASE)
     id_tobj_re = re.compile(r"^TObjP(\d+)-(\d+)$", re.IGNORECASE)
-    id_utobj_re = re.compile(r"^uTObjP(\d+)-(\d+)$", re.IGNORECASE)
+    id_utobj_re = re.compile(r"^(?:uTObj|uObj)P(\d+)-(\d+)$", re.IGNORECASE)
     id_issue_re = re.compile(r"^IssueP(\d+)-(\d+)$", re.IGNORECASE)
 
-    tag_feat_re = re.compile(r"^feat$", re.IGNORECASE)
+    tag_feat_re = re.compile(r"^(feat|feature)$", re.IGNORECASE)
     tag_rsk_re = re.compile(r"^rsk$", re.IGNORECASE)
     tag_risk_re = re.compile(r"^risk$", re.IGNORECASE)
 
     tag_dp_re = re.compile(r"^dp$", re.IGNORECASE)
     tag_dep_re = re.compile(r"^dep$", re.IGNORECASE)
     tag_tobj_re = re.compile(r"^tobj$", re.IGNORECASE)
-    tag_utobj_re = re.compile(r"^utobj$", re.IGNORECASE)
+    tag_utobj_re = re.compile(r"^(?:utobj|uobj)$", re.IGNORECASE)
     tag_bug_re = re.compile(r"^bug$", re.IGNORECASE)
     tag_issue_re = re.compile(r"^issue$", re.IGNORECASE)
 
@@ -117,11 +119,27 @@ def extract_id_and_clean_for_kind(text, kind=None):
             token_to_remove = m.group(0)
             break
 
+        m_tobj_short = id_tobj_short_re.match(token)
+        if m_tobj_short:
+            detected_kind = "tobj"
+            pi_number = 0
+            item_number = int(m_tobj_short.group(1))
+            token_to_remove = m.group(0)
+            break
+
         m_tobj = id_tobj_re.match(token)
         if m_tobj:
             detected_kind = "tobj"
             pi_number = int(m_tobj.group(1))
             item_number = int(m_tobj.group(2))
+            token_to_remove = m.group(0)
+            break
+
+        m_utobj_short = id_utobj_short_re.match(token)
+        if m_utobj_short:
+            detected_kind = "utobj"
+            pi_number = 0
+            item_number = int(m_utobj_short.group(1))
             token_to_remove = m.group(0)
             break
 
@@ -177,7 +195,10 @@ def extract_id_and_clean_for_kind(text, kind=None):
     else:
         cleaned_text = text
 
-    cleaned_text = re.sub(r"^[^a-zA-Z0-9]+", "", cleaned_text).strip()
+    # Strip leading non-alphanumeric chars (spaces, emojis, punctuation) WITHOUT
+    # dropping accented letters : \W est Unicode-aware (é, à, ç… sont des \w),
+    # contrairement à [^a-zA-Z0-9] qui supprimait à tort le « é » de « évaluer ».
+    cleaned_text = re.sub(r"^[\W_]+", "", cleaned_text, flags=re.UNICODE).strip()
     return cleaned_text, detected_kind, pi_number, item_number
 
 
@@ -221,8 +242,8 @@ def extract_objective_id_and_clean(text):
     """Extract a team objective only.
 
     Accepted patterns (case-insensitive):
-      - Committed team objective:   [TObj] or [TObjP<pi>-<item>]
-      - Uncommitted team objective: [uTObj] or [uTObjP<pi>-<item>]
+      - Committed team objective:   [TObj], [TObj<item>] or [TObjP<pi>-<item>]
+      - Uncommitted team objective: [uTObj] or [uObj], [uTObj<item>] or [uObj<item>], [uTObjP<pi>-<item>] or [uObjP<pi>-<item>]
 
     Returns:
       - If objective detected: (cleaned_text, pi_number, item_number, commitment)

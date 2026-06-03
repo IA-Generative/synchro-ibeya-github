@@ -1,0 +1,45 @@
+# Build context = racine du repo (cf. infra-minimal/build-push.sh + deploy/Dockerfile).
+# Docker lit le .dockerignore à la racine du contexte : ce fichier est celui qui
+# s'applique réellement (deploy/.dockerignore ne l'est pas).
+
+# VCS & métadonnées
+.git
+.gitignore
+.githooks/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Secrets / configuration locale (la config runtime est montée via le secret k8s)
+config.yaml
+config*.yaml
+config *.yaml
+!config.example.yaml
+config.zip
+config*.zip
+.env
+deploy/env.config.production
+**/*.pem
+
+# Outils & éditeurs
+.idea/
+.vscode/
+.DS_Store
+node_modules/
+
+# Logs & bases locales
+*.log
+*.sqlite3
+
+# Données générées
+data/

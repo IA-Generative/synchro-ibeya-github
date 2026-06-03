@@ -44,23 +44,24 @@ def github_get_projects(github_token,org_name):
         logger.error("❌ Token GitHub manquant ou non défini dans l'environnement")
         return []    
     
-    # --- Requête GraphQL pour les ProjectsV2 ---
-    graphql_query = {
-        "query": f"""
-        query {{
-          organization(login: "{org_name}") {{
-            projectsV2(first: 20) {{
-              nodes {{
-                id
-                title
-                shortDescription
-                number
-              }}
-            }}
-          }}
-        }}
-        """
+    # --- Requête GraphQL paginée pour les ProjectsV2 ---
+    # ⚠️ Une organisation peut avoir bien plus de 20 projets : il faut paginer
+    # sur l'ensemble (hasNextPage / endCursor), sinon des projets manquent.
+    graphql_query_template = """
+    query($org: String!, $after: String) {
+      organization(login: $org) {
+        projectsV2(first: 100, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            title
+            shortDescription
+            number
+          }
+        }
+      }
     }
+    """
 
     headers = {
         "Authorization": f"Bearer {github_token}",
@@ -68,24 +69,45 @@ def github_get_projects(github_token,org_name):
     }
 
     try:
-        response = requests.post(
-            "https://api.github.com/graphql",
-            headers=headers,
-            json=graphql_query,
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
+        projects = []
+        after = None
+        org_found = False
 
-        # Extraire les projets
-        org_data = data.get("data", {}).get("organization")
-        
-        if not org_data:
-            logger.warning(f"⚠️ Aucune organisation trouvée : {org_name}")
-            return []
+        while True:
+            response = requests.post(
+                "https://api.github.com/graphql",
+                headers=headers,
+                json={
+                    "query": graphql_query_template,
+                    "variables": {"org": org_name, "after": after},
+                },
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
 
-        projects = org_data.get("projectsV2", {}).get("nodes", [])
-        
+            if "errors" in data:
+                logger.error(f"❌ Erreurs GraphQL (projectsV2) : {data['errors']}")
+                return []
+
+            org_data = data.get("data", {}).get("organization")
+            if not org_data:
+                if not org_found:
+                    logger.warning(f"⚠️ Aucune organisation trouvée : {org_name}")
+                    return []
+                break
+
+            org_found = True
+            projects_conn = org_data.get("projectsV2", {}) or {}
+            projects.extend(projects_conn.get("nodes", []) or [])
+
+            page_info = projects_conn.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+            after = page_info.get("endCursor")
+            if not after:
+                break
+
         project_list = [
             {
                 "id": p.get("id"),
@@ -132,111 +154,154 @@ def github_get_project_objects(projectId, github_token):
     }
 
     query = """
-    query($projectId: ID!) {
-    node(id: $projectId) {
+    query($projectId: ID!, $first: Int!, $after: String) {
+      node(id: $projectId) {
         ... on ProjectV2 {
-        id
-        title
-        items(first: 50) {
+          id
+          title
+          items(first: $first, after: $after) {
+            pageInfo { hasNextPage endCursor }
             nodes {
-            id
-            fieldValues(first: 8) {
+              id
+              updatedAt
+              fieldValues(first: 8) {
                 nodes {
-                ... on ProjectV2ItemFieldTextValue {
+                  ... on ProjectV2ItemFieldTextValue {
                     text
                     field { ... on ProjectV2FieldCommon { name } }
-                }
-                ... on ProjectV2ItemFieldDateValue {
+                  }
+                  ... on ProjectV2ItemFieldDateValue {
                     date
                     field { ... on ProjectV2FieldCommon { name } }
-                }
-                ... on ProjectV2ItemFieldSingleSelectValue {
+                  }
+                  ... on ProjectV2ItemFieldSingleSelectValue {
                     name
                     field { ... on ProjectV2FieldCommon { name } }
+                  }
                 }
-                }
-            }
-            content {
+              }
+              content {
                 __typename
                 ... on DraftIssue {
-                title
-                body
-                createdAt
-                updatedAt            # last-modified timestamp for the issue
+                  title
+                  body
+                  createdAt
+                  updatedAt
                 }
                 ... on Issue {
-                id
-                databaseId
-                number
-                title
-                body
-                createdAt
-                updatedAt            # last-modified timestamp for the issue
-                repository {
+                  id
+                  databaseId
+                  number
+                  title
+                  body
+                  createdAt
+                  updatedAt
+                  repository {
                     nameWithOwner
-                }
-                comments(first: 20) {
+                  }
+                  comments(first: 20) {
                     totalCount
                     pageInfo { hasNextPage endCursor }
                     nodes {
-                        body
-                        bodyText     # rendered to plain text
-                        author { login }
-                        createdAt
-                        updatedAt            # last-modified timestamp for the issue
+                      body
+                      bodyText
+                      author { login }
+                      createdAt
+                      updatedAt
                     }
-                }
-                assignees(first: 10) { nodes { login } }
+                  }
+                  assignees(first: 10) { nodes { login } }
                 }
                 ... on PullRequest {
-                id
-                databaseId
-                number
-                title
-                body
-                createdAt
-                updatedAt            # last-modified timestamp for the issue
-                comments(first: 20) {
+                  id
+                  databaseId
+                  number
+                  title
+                  body
+                  createdAt
+                  updatedAt
+                  comments(first: 20) {
                     totalCount
                     pageInfo { hasNextPage endCursor }
                     nodes {
-                        body
-                        bodyText     # rendered to plain text
-                        author { login }
-                        createdAt
-                        updatedAt            # last-modified timestamp for the issue
+                      body
+                      bodyText
+                      author { login }
+                      createdAt
+                      updatedAt
                     }
+                  }
+                  assignees(first: 10) { nodes { login } }
                 }
-                assignees(first: 10) { nodes { login } }
-                }
+              }
             }
-            }
+          }
         }
-        }
-    }
+      }
     }
     """
 
-    variables = {"projectId": projectId}
+    # We will paginate items and cap at 200 items total
+    max_items = 200
+    after = None
+    variables = {"projectId": projectId, "first": 100, "after": after}
+
+    # Keep only items updated/created within the last ~4 months (approx 120 days)
+    from datetime import timedelta
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=120)
 
     try:
-        r = requests.post(url, headers=headers, json={"query": query, "variables": variables}, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-        if "errors" in data:
-            print("⚠️ Erreurs GraphQL :", data["errors"])
-            return []
+        all_nodes = []
+        fetched = 0
 
-        nodes = (
-            data.get("data", {})
-            .get("node", {})
-            .get("items", {})
-            .get("nodes", [])
-        )
+        while fetched < max_items:
+            variables["first"] = min(100, max_items - fetched)
+            variables["after"] = after
+
+            r = requests.post(url, headers=headers, json={"query": query, "variables": variables}, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+
+            if "errors" in data:
+                print("⚠️ Erreurs GraphQL :", data["errors"])
+                return []
+
+            items = (
+                data.get("data", {})
+                .get("node", {})
+                .get("items", {})
+            )
+
+            page_nodes = items.get("nodes", []) or []
+            all_nodes.extend(page_nodes)
+            fetched += len(page_nodes)
+
+            page_info = items.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                break
+
+            after = page_info.get("endCursor")
+            if not after:
+                break
+
+        nodes = all_nodes
         objects = []
 
         for node in nodes:
             content = node.get("content") or {}
+            # Filter: keep only items updated/created within the last ~4 months
+            content_updated_at = content.get("updatedAt") or content.get("createdAt")
+            if content_updated_at:
+                try:
+                    # GitHub timestamps are ISO 8601 like 2026-02-08T12:34:56Z
+                    dt = datetime.fromisoformat(content_updated_at.replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    if dt < cutoff_dt:
+                        continue
+                except Exception:
+                    # If parsing fails, do not filter out (safer than losing data)
+                    pass
             typename = content.get("__typename", "Unknown")
             title = content.get("title")
             body = content.get("body")

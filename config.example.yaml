@@ -24,6 +24,11 @@ github:
   # Format: "organization/repo", create a generic repository for issues creation
   # item in project should be linked to issue itself linked to a repository 
   default_repo_full_name: "<organization>/<default_repository_name>"   # in case no specific repo is indicated in project
+  # Nombre max d'items lus par projet lors de la synchro. 0 = illimité (pagination jusqu'au bout).
+  # ⚠️ Un plafond trop bas masque silencieusement les items au-delà (l'ordre suit le board, pas la date).
+  max_items: 0
+  # Ne synchroniser que les items créés/màj dans les N derniers jours. 0 = pas de filtre temporel.
+  recent_days: 120
   organizations:
     - my-org-example
     - innovation-lab

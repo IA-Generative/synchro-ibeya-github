@@ -241,21 +241,40 @@ def github_get_project_objects(projectId, github_token):
     }
     """
 
-    # We will paginate items and cap at 200 items total
-    max_items = 200
+    # --- Limites configurables (cf. config.yaml > github) ---
+    # max_items   : nombre max d'items lus dans le projet. 0/None = illimité (pagination jusqu'au bout).
+    # recent_days : ne garder que les items créés/màj dans les N derniers jours. 0/None = pas de filtre.
+    github_conf = (config.get("github", {}) or {}) if isinstance(config, dict) else {}
+    try:
+        max_items = int(github_conf.get("max_items", 0) or 0)   # défaut: illimité
+    except (TypeError, ValueError):
+        max_items = 0
+    recent_days = github_conf.get("recent_days", 120)           # défaut: 120 jours
+    if recent_days in (None, 0, "0", ""):
+        recent_days = None
+
     after = None
     variables = {"projectId": projectId, "first": 100, "after": after}
 
-    # Keep only items updated/created within the last ~4 months (approx 120 days)
+    # Keep only items updated/created within the last N days (if recent_days set)
     from datetime import timedelta
-    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=120)
+    cutoff_dt = (datetime.now(timezone.utc) - timedelta(days=int(recent_days))) if recent_days else None
 
     try:
         all_nodes = []
         fetched = 0
+        cap_reached = False
 
-        while fetched < max_items:
-            variables["first"] = min(100, max_items - fetched)
+        while True:
+            # Taille de page : 100, ou le reste si un plafond est défini
+            if max_items:
+                remaining = max_items - fetched
+                if remaining <= 0:
+                    cap_reached = True
+                    break
+                variables["first"] = min(100, remaining)
+            else:
+                variables["first"] = 100
             variables["after"] = after
 
             r = requests.post(url, headers=headers, json={"query": query, "variables": variables}, timeout=15)
@@ -284,20 +303,33 @@ def github_get_project_objects(projectId, github_token):
             if not after:
                 break
 
+            # Plafond atteint alors qu'il reste des pages : on prévient (items ignorés)
+            if max_items and fetched >= max_items:
+                cap_reached = True
+                logger.warning(
+                    "⚠️ Plafond max_items=%s atteint pour le projet %s alors qu'il reste des items "
+                    "(hasNextPage=true) : certains ne seront pas lus. "
+                    "Augmentez github.max_items dans la config (ou mettez 0 pour illimité).",
+                    max_items, projectId,
+                )
+                break
+
         nodes = all_nodes
         objects = []
+        skipped_by_date = 0
 
         for node in nodes:
             content = node.get("content") or {}
-            # Filter: keep only items updated/created within the last ~4 months
+            # Filtre optionnel : ne garder que les items récents (si cutoff_dt défini)
             content_updated_at = content.get("updatedAt") or content.get("createdAt")
-            if content_updated_at:
+            if cutoff_dt and content_updated_at:
                 try:
                     # GitHub timestamps are ISO 8601 like 2026-02-08T12:34:56Z
                     dt = datetime.fromisoformat(content_updated_at.replace("Z", "+00:00"))
                     if dt.tzinfo is None:
                         dt = dt.replace(tzinfo=timezone.utc)
                     if dt < cutoff_dt:
+                        skipped_by_date += 1
                         continue
                 except Exception:
                     # If parsing fails, do not filter out (safer than losing data)
@@ -363,7 +395,15 @@ def github_get_project_objects(projectId, github_token):
                     "timestamp_Issue": timestamp_Issue
                 })
 
-        print(f"✅ {len(objects)} items récupérés depuis GitHub.")
+        logger.info(
+            "✅ Projet %s : %s items lus | %s gardés (Issues/Features) | %s ignorés (> %s jours)%s",
+            projectId,
+            fetched,
+            len(objects),
+            skipped_by_date,
+            recent_days if recent_days else "∞",
+            " | ⚠️ PLAFOND max_items atteint : items potentiellement manquants" if cap_reached else "",
+        )
         return objects
 
     except requests.RequestException as e:

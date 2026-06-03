@@ -391,8 +391,12 @@ def verify():
     # récupérer les objets depuis grist
     
     try:
-        grist_epics = grist_get_epics(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN )       
-        session_data["grist_epics"] = jsonify(grist_epics)
+        grist_epics = grist_get_epics(GRIST_API_URL, grist_doc_id, GRIST_API_TOKEN )
+        # ⚠️ NE PAS jsonify ici : le store de session conserve l'objet tel quel.
+        # jsonify renvoie une Response Flask (itérable en octets), ce qui casse ensuite
+        # find_item_by_id(grist_epics, id_Epic) -> epic introuvable -> la synchro
+        # GitHub→Grist sort immédiatement en "Aucun Epic sélectionné".
+        session_data["grist_epics"] = grist_epics or []
         app.logger.info(f" >> ✅ {len(session_data['grist_epics'])} épics récupérés depuis Grist (app.py).")
     except Exception as e:
         app.logger.error(f"❌ Erreur lors de la récupération de la liste des EPics de Grist : {e}")

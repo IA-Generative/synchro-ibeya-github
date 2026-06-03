@@ -89,6 +89,14 @@ def synchronize_all(grist_conf, iobeya_conf, github_conf, context):
             logger.info("🔁 Action: pullToGristBtn — création des features manquantes dans Grist...")
             result["details"]["steps"].append("pullToGrist")
             result["grist_synced"] = grist_create_epic_objects(grist_conf, iobeya_conf, github_conf, sync_context)
+            # Remonte le bilan création (réussites/échecs) exposé par grist_create_epic_objects.
+            stats = sync_context.get("grist_create_stats") or {}
+            result["grist_create_stats"] = stats
+            if stats.get("failed"):
+                logger.warning(
+                    "⚠️ %d objet(s) non créé(s) dans Grist (cf. grist_create_stats.failures).",
+                    stats.get("failed"),
+                )
 
         elif action == "pushToIobeyaBtn":
             logger.info("🔁 Action: pushToIobeyaBtn — synchronisation Grist → iObeya...")

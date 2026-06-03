@@ -350,6 +350,7 @@ def grist_create_epic_objects(grist_conf, iobeya_conf,github_conf,context):
 
     # initialisations
     created = []
+    failed = []
     combined_diffs = []
 
     # on compile les id numériques max déjà utilisés par type d'objet dans grist (par epic / pi num)
@@ -493,10 +494,40 @@ def grist_create_epic_objects(grist_conf, iobeya_conf,github_conf,context):
                 
             # Si création réussie, on ajoute à la liste des créés et gardant depuis quel source
             created.append(result)
+        else:
+            # Échec de création (ex: 403 Forbidden sur la table cible) : ne pas l'avaler.
+            failure = {
+                "type": type,
+                "Nom": Nom,
+                "source": source,
+                "number": object.get("number", ""),
+                "nameWithOwner": object.get("nameWithOwner", ""),
+                "doc_id": doc_id,
+            }
+            failed.append(failure)
+            logger.warning(
+                "⛔ Échec de création dans Grist : table=%s | Nom=%r | source=%s | github#%s | doc=%s "
+                "(voir l'erreur HTTP ci-dessus ; 403 = droits d'écriture insuffisants sur la table %s).",
+                type, Nom, source, failure["number"], doc_id, type,
+            )
             
     ## todo : pensez à ajouter des fonction de CRUD dans iobeya et github ? (dans la methode appellante ) 
     
-    logger.info(f"✅ {len(created)} features créées dans Grist.")
+    if failed:
+        logger.warning(
+            "⚠️ Bilan création Grist : %d réussie(s), %d échec(s). Objets en échec : %s",
+            len(created), len(failed),
+            [f"{f['type']}:{f['Nom']!r}(github#{f['number']})" for f in failed],
+        )
+    else:
+        logger.info(f"✅ {len(created)} features créées dans Grist (0 échec).")
+
+    # Remonte le bilan dans le contexte de sync pour exposition côté résultat/UI.
+    wrapper["grist_create_stats"] = {
+        "created": len(created),
+        "failed": len(failed),
+        "failures": failed,
+    }
     return created
 
 

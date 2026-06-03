@@ -583,15 +583,28 @@ def grist_create_object(
     url = f"{base_url}/api/docs/{doc_id}/tables/{type}/records"
     url = url.replace('://', '§§').replace('//', '/').replace('§§', '://')
 
+    response = None
     try:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
         logger.info(f"✅ objet créé avec succès dans Grist : {type} / {data}")
         return data
-    
+
     except requests.exceptions.RequestException as e:
-        logger.warning(f"❌ Erreur lors de la création de l'objet {type} : {e}")
+        # Log détaillé : statut + corps de la réponse Grist (qui nomme la colonne/raison)
+        # + colonnes effectivement envoyées, pour diagnostiquer un modèle de table modifié.
+        status = getattr(response, "status_code", "?")
+        body = ""
+        try:
+            if response is not None:
+                body = response.text[:1000]
+        except Exception:
+            pass
+        logger.warning(
+            "❌ Erreur création %s (HTTP %s) : %s | colonnes envoyées=%s | réponse Grist=%s",
+            type, status, e, sorted(fields.keys()), body,
+        )
         return None
 
 ### UTILITAIRES
